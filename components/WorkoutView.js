@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useData, MUSCLE_GROUPS } from '../contexts/DataContext';
-import ConfettiCannon from 'react-native-confetti-cannon';
+import Confetti from '../components/Confetti';
 
 export default function WorkoutView({ workout }) {
   const { data, updateWorkout, computeGlobalPrs, addDayTemplate } = useData();
@@ -144,7 +144,7 @@ export default function WorkoutView({ workout }) {
           );
         })}
       </ScrollView>
-      {showConfetti && <ConfettiCannon count={60} origin={{ x: 200, y: 0 }} fadeOut={true} />}
+      {showConfetti && <Confetti count={60} origin={{ x: 200, y: 0 }} fadeOut={true} />}
       {/* Add exercise section */}
       <View style={{ marginTop: 16 }}>
         <Text style={styles.heading}>Add Exercise to Workout</Text>

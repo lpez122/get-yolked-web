@@ -1,3 +1,4 @@
+import CaloriesChart from'../components/CaloriesChart';
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useData } from '../contexts/DataContext';
@@ -34,6 +35,8 @@ export default function AnalyticsScreen() {
         const pr = prs[key];
         return (
           <View key={key} style={styles.card}>
+  <CaloriesChart />
+  <View style={{height:12}} />
             <Text style={styles.cardTitle}>{exMap[key] || 'Exercise'}</Text>
             <Text style={styles.cardInfo}>Max Weight: {pr.maxWeight.toFixed(2)}</Text>
             <Text style={styles.cardInfo}>Max Volume: {pr.maxVolume.toFixed(2)}</Text>
