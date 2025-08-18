@@ -1,82 +1,55 @@
-import CaloriesChart from'../components/CaloriesChart';
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { useData } from '../contexts/DataContext';
+import React,{useEffect,useMemo,useState} from 'react';
+import {View,Text,ScrollView} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {theme} from '../constants/theme';
+import {useExerciseLibrary} from '../contexts/ExerciseLibrary';
 
-export default function AnalyticsScreen() {
-  const { data, computeGlobalPrs } = useData();
-  const prs = computeGlobalPrs();
-
-  // Map exerciseId to exercise name
-  const exMap = {};
-  data.exercises.forEach(ex => { exMap[ex.id] = ex.name; });
-
-  // Compute sets per muscle group for last 7 days
-  const setsPerMuscle = {};
-  const now = new Date();
-  data.workouts.forEach(w => {
-    const wDate = new Date(w.date);
-    if ((now - wDate) / (1000 * 60 * 60 * 24) <= 7) {
-      w.sets.forEach(s => {
-        const ex = data.exercises.find(e => e.id === s.exerciseId);
-        if (!ex) return;
-        const muscles = [...ex.primaryMuscles, ...ex.secondaryMuscles];
-        muscles.forEach(m => {
-          setsPerMuscle[m] = (setsPerMuscle[m] || 0) + 1;
-        });
-      });
+async function loadHistory(){return JSON.parse(await AsyncStorage.getItem('workouts_history_v1')||'[]');}
+function bucketCounts(history,libMap,days){
+  const cutoff=Date.now()-days*86400000;
+  const counts={};
+  for(const s of history){
+    const t=new Date(s.dateISO||s.endAt||s.startAt).getTime();
+    if(isNaN(t)||t<cutoff)continue;
+    for(const ex of s.exercises||[]){
+      const meta=libMap.get(String(ex.name||'').toLowerCase());
+      const prim=meta?meta.primary:[];
+      for(const set of ex.sets||[]){
+        if(!set.done)continue;
+        for(const m of prim){counts[m]=(counts[m]||0)+1;}
+      }
     }
-  });
-
-  return (
-    <ScrollView style={{ backgroundColor: '#0d1117', flex: 1 }} contentContainerStyle={{ padding: 16 }}>
-      <Text style={styles.heading}>Personal Records</Text>
-      {Object.keys(prs).map(key => {
-        const pr = prs[key];
-        return (
-          <View key={key} style={styles.card}>
-  <CaloriesChart />
-  <View style={{height:12}} />
-            <Text style={styles.cardTitle}>{exMap[key] || 'Exercise'}</Text>
-            <Text style={styles.cardInfo}>Max Weight: {pr.maxWeight.toFixed(2)}</Text>
-            <Text style={styles.cardInfo}>Max Volume: {pr.maxVolume.toFixed(2)}</Text>
-            <Text style={styles.cardInfo}>Max 1RM (Epley): {pr.maxOneRmEpley.toFixed(2)}</Text>
-            <Text style={styles.cardInfo}>Max 1RM (Brzycki): {pr.maxOneRmBrzycki.toFixed(2)}</Text>
-          </View>
-        );
-      })}
-      <Text style={styles.heading}>Sets per Muscle (last 7 days)</Text>
-      {Object.keys(setsPerMuscle).map(muscle => (
-        <View key={muscle} style={styles.card}>
-          <Text style={styles.cardTitle}>{muscle}</Text>
-          <Text style={styles.cardInfo}>Sets: {setsPerMuscle[muscle]}</Text>
-        </View>
-      ))}
-    </ScrollView>
-  );
+  }
+  return counts;
 }
 
-const styles = StyleSheet.create({
-  heading: {
-    fontSize: 20,
-    color: '#58a6ff',
-    fontWeight: '600',
-    marginBottom: 12
-  },
-  card: {
-    backgroundColor: '#161b22',
-    padding: 12,
-    borderRadius: 8,
-    borderColor: '#30363d',
-    borderWidth: 1,
-    marginBottom: 12
-  },
-  cardTitle: {
-    fontSize: 16,
-    color: '#c9d1d9',
-    fontWeight: '600'
-  },
-  cardInfo: {
-    color: '#8b949e'
-  }
-});
+export default function AnalyticsScreen(){
+  const {list}=useExerciseLibrary();
+  const [history,setHistory]=useState([]);
+  useEffect(()=>{(async()=>{setHistory(await loadHistory());})()},[]);
+  const libMap=useMemo(()=>{
+    const m=new Map();
+    for(const e of list)m.set(e.name.toLowerCase(),{primary:e.primary||[],secondary:e.secondary||[]});
+    return m;
+  },[list]);
+  const w=useMemo(()=>bucketCounts(history,libMap,7),[history,libMap]);
+  const mo=useMemo(()=>bucketCounts(history,libMap,30),[history,libMap]);
+  const y=useMemo(()=>bucketCounts(history,libMap,365),[history,libMap]);
+  const keys=Array.from(new Set([...Object.keys(w),...Object.keys(mo),...Object.keys(y)])).sort();
+  return(
+    <View style={{flex:1,backgroundColor:theme.bg}}>
+      <ScrollView contentContainerStyle={{padding:16,gap:16}}>
+        <View style={{backgroundColor:theme.card,borderRadius:12,padding:12}}>
+          <Text style={{color:theme.text,fontWeight:'700',marginBottom:8}}>Sets per Muscle Group</Text>
+          {keys.length===0?<Text style={{color:theme.muted}}>No completed sets logged yet.</Text>:null}
+          {keys.map(k=>(
+            <View key={k} style={{flexDirection:'row',justifyContent:'space-between',paddingVertical:6,borderBottomWidth:1,borderColor:theme.border}}>
+              <Text style={{color:theme.text}}>{k}</Text>
+              <Text style={{color:theme.muted}}>7d {w[k]||0} • 30d {mo[k]||0} • 365d {y[k]||0}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}

@@ -28,33 +28,23 @@ export function SessionProvider({children}){
   const endSession=async(finalize)=>{
     if(!current) return null;
     const endAt=Date.now();
-    const durationSec=Math.max(1,Math.round((endAt-current.startAt)/1000));
+    const durationSec=Math.max(1,Math.round(finalize?.durationSec ?? ((endAt-current.startAt)/1000)));
     const sets=finalize?.sets??current.sets??[];
     const notes=finalize?.notes||'';
     const dateISO=finalize?.dateISO||new Date(endAt).toISOString();
     const exercises=finalize?.exercises||[];
     const calories=estimateCalories(sets,durationSec,settings);
-    const out={id:current.id, programName:current.programName, week:current.week, day:current.day,
-               startAt:current.startAt, endAt, durationSec, dateISO, notes, sets, exercises,
-               calories, units: settings.units};
-
+    const out={id:current.id,programName:current.programName,week:current.week,day:current.day,startAt:current.startAt,endAt,durationSec,dateISO,notes,sets,exercises,calories,units:settings.units};
     try{
       const kc='calories_history_v1';
       const prev=JSON.parse(await AsyncStorage.getItem(kc)||'[]');
-      prev.push({date:dateISO, calories, durationSec, programName: out.programName||'', week: out.week||1, day: out.day||1});
-      await AsyncStorage.setItem(kc, JSON.stringify(prev));
+      prev.push({date:dateISO,calories,durationSec,programName:out.programName||'',week:out.week||1,day:out.day||1});
+      await AsyncStorage.setItem(kc,JSON.stringify(prev));
     }catch{}
-
     try{
-      const {appendWorkoutSession} = await import('./HistoryStore');
+      const {appendWorkoutSession}=await import('./HistoryStore');
       await appendWorkoutSession(out);
     }catch{}
-
-    try{
-      const { markCompleteAndAdvance } = await import('./ProgramProgress');
-      await markCompleteAndAdvance({ programName: out.programName, week: out.week, day: out.day });
-    }catch{}
-
     setCurrent(null);
     setSheetVisible(false);
     return out;
