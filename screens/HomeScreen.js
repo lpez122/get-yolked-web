@@ -5,21 +5,28 @@ import WorkoutSheet from '../components/WorkoutSheet';
 import SettingsModal from './SettingsModal';
 import WorkoutView from '../components/WorkoutView';
 import {useSession} from '../contexts/SessionContext';
+
 export default function HomeScreen(){
   const {sheetVisible,setSheetVisible,startSession,endSession}=useSession();
   const [showSettings,setShowSettings]=useState(false);
+
+  // TODO: Replace this with your real "active program" lookup from DataContext.
   const next=useMemo(()=>({
     programName:'Get Yolked 4.0',
     week:2, day:4,
     items:[
-      {name:'Incline Bench Press (Smith Machine)',sets:3,reps:12},
-      {name:'Tricep Extension (Machine)',sets:3,reps:12},
-      {name:'Decline Bench Press (Dumbbell)',sets:3,reps:12},
-      {name:'Face Pull',sets:3,reps:12},
-    ]
+      {name:'Lying Side Lateral Raise', sets:3, reps:10},
+      {name:'Bicep Curl (Dumbbell)', sets:3, reps:10},
+    ],
+    plan:{exercises:[
+      {name:'Lying Side Lateral Raise', sets:3, reps:10},
+      {name:'Bicep Curl (Dumbbell)', sets:3, reps:10}
+    ]}
   }),[]);
-  const onStart=()=>startSession({programName:next.programName,week:next.week,day:next.day});
+
+  const onStart=()=>startSession({programName:next.programName,week:next.week,day:next.day,plan:next.plan});
   const onFinish=(finalize)=>endSession(finalize);
+
   return (
     <View style={{flex:1,backgroundColor:'#0a0a0a'}}>
       <View style={{height:56,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16}}>

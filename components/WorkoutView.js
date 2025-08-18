@@ -1,304 +1,212 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { useData, MUSCLE_GROUPS } from '../contexts/DataContext';
-import Confetti from '../components/Confetti';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, Platform } from 'react-native';
+import { useSession } from '../contexts/SessionContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { getLastForExercise } from '../contexts/HistoryStore';
+import RestTimer from './RestTimer';
+import Confetti from './Confetti';
 
-export default function WorkoutView({ workout }) {
-  const { data, updateWorkout, computeGlobalPrs, addDayTemplate } = useData();
-  const [localWorkout, setLocalWorkout] = useState(workout);
-  const [showConfetti, setShowConfetti] = useState(false);
-
-  // Add exercise state
-  const [selectedMuscle, setSelectedMuscle] = useState('');
-  const [search, setSearch] = useState('');
-  const [exerciseId, setExerciseId] = useState('');
-  const [setsCount, setSetsCount] = useState('3');
-  const [repsMin, setRepsMin] = useState('8');
-  const [repsMax, setRepsMax] = useState('8');
-  const [rpe, setRpe] = useState('8');
-  const [restSec, setRestSec] = useState('90');
-
-  useEffect(() => {
-    setLocalWorkout(workout);
-  }, [workout]);
-
-  // handle update input fields for sets
-  const handleSetChange = (setId, field, value) => {
-    const updatedSets = localWorkout.sets.map(s => {
-      if (s.id === setId) {
-        return { ...s, [field]: value };
-      }
-      return s;
-    });
-    const updatedWorkout = { ...localWorkout, sets: updatedSets };
-    setLocalWorkout(updatedWorkout);
-    updateWorkout(updatedWorkout);
-  };
-
-  const toggleCompleted = (setId) => {
-    const updatedSets = localWorkout.sets.map(s => {
-      if (s.id === setId) {
-        return { ...s, completed: !s.completed };
-      }
-      return s;
-    });
-    const updatedWorkout = { ...localWorkout, sets: updatedSets };
-    setLocalWorkout(updatedWorkout);
-    updateWorkout(updatedWorkout);
-    // check for PR if this set toggled to completed and now completed
-    const setObj = updatedSets.find(s => s.id === setId);
-    if (setObj.completed) {
-      checkForPR(setObj);
-    }
-  };
-
-  const checkForPR = (setObj) => {
-    const prs = computeGlobalPrs();
-    const current = prs[setObj.exerciseId] || { maxWeight: 0, maxVolume: 0, maxOneRmEpley: 0, maxOneRmBrzycki: 0 };
-    const weight = parseFloat(setObj.weight) || 0;
-    const reps = parseFloat(setObj.reps) || 0;
-    const volume = weight * reps;
-    const oneE = weight * (1 + reps / 30);
-    const oneB = reps >= 37 || reps === 0 ? 0 : weight * (36 / (37 - reps));
-    if (weight > current.maxWeight || volume > current.maxVolume || oneE > current.maxOneRmEpley || oneB > current.maxOneRmBrzycki) {
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 3000);
-    }
-  };
-
-  // Add exercise to workout
-  const filteredExercises = data.exercises.filter(ex => {
-    const matchesMuscle = selectedMuscle ? (ex.primaryMuscles.includes(selectedMuscle) || ex.secondaryMuscles.includes(selectedMuscle)) : true;
-    const matchesSearch = search ? ex.name.toLowerCase().includes(search.toLowerCase()) : true;
-    return matchesMuscle && matchesSearch;
-  });
-
-  const onAddExercise = () => {
-    if (!exerciseId) return;
-    const exercise = data.exercises.find(ex => ex.id === exerciseId);
-    if (!exercise) return;
-    const newSets = [];
-    let maxSetNumber = 0;
-    localWorkout.sets.forEach(s => { if (s.setNumber > maxSetNumber) maxSetNumber = s.setNumber; });
-    for (let i = 0; i < (parseInt(setsCount) || 3); i++) {
-      newSets.push({
-        id: Math.random().toString(),
-        exerciseId: exercise.id,
-        setNumber: maxSetNumber + i + 1,
-        weight: 0,
-        reps: 0,
-        rpe: 0,
-        restSec: parseInt(restSec) || 90,
-        completed: false
-      });
-    }
-    const updatedWorkout = { ...localWorkout, sets: [...localWorkout.sets, ...newSets] };
-    setLocalWorkout(updatedWorkout);
-    updateWorkout(updatedWorkout);
-    // reset
-    setExerciseId('');
-    setSetsCount('3');
-    setRepsMin('8');
-    setRepsMax('8');
-    setRpe('8');
-    setRestSec('90');
-  };
-
+function Header({elapsedSec,onFinish,dateISO,setDateISO,notes,setNotes}){
+  const mm = String(Math.floor(elapsedSec/60)).padStart(2,'0');
+  const ss = String(elapsedSec%60).padStart(2,'0');
   return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Active Workout</Text>
-      <ScrollView style={{ maxHeight: 300 }}>
-        {localWorkout.sets.map(s => {
-          const exercise = data.exercises.find(e => e.id === s.exerciseId);
-          return (
-            <View key={s.id} style={styles.setRow}>
-              <Text style={styles.setText}>{exercise ? exercise.name : 'Exercise'}</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="numeric"
-                value={String(s.weight)}
-                onChangeText={(text) => handleSetChange(s.id, 'weight', parseFloat(text) || 0)}
-              />
-              <TextInput
-                style={styles.input}
-                keyboardType="numeric"
-                value={String(s.reps)}
-                onChangeText={(text) => handleSetChange(s.id, 'reps', parseInt(text) || 0)}
-              />
-              <TextInput
-                style={styles.input}
-                keyboardType="numeric"
-                value={String(s.rpe)}
-                onChangeText={(text) => handleSetChange(s.id, 'rpe', parseFloat(text) || 0)}
-              />
-              <TextInput
-                style={styles.input}
-                keyboardType="numeric"
-                value={String(s.restSec)}
-                onChangeText={(text) => handleSetChange(s.id, 'restSec', parseInt(text) || 0)}
-              />
-              <TouchableOpacity onPress={() => toggleCompleted(s.id)} style={styles.checkbox}>
-                {s.completed && <View style={styles.checkboxInner} />}
-              </TouchableOpacity>
-            </View>
-          );
-        })}
-      </ScrollView>
-      {showConfetti && <Confetti count={60} origin={{ x: 200, y: 0 }} fadeOut={true} />}
-      {/* Add exercise section */}
-      <View style={{ marginTop: 16 }}>
-        <Text style={styles.heading}>Add Exercise to Workout</Text>
-        <View style={styles.controlsRow}>
-          <Text style={styles.label}>Muscle:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity onPress={() => setSelectedMuscle('')} style={[styles.muscleChip, selectedMuscle === '' && styles.muscleChipSelected]}><Text style={styles.muscleChipText}>All</Text></TouchableOpacity>
-            {MUSCLE_GROUPS.map(muscle => (
-              <TouchableOpacity key={muscle} onPress={() => setSelectedMuscle(muscle)} style={[styles.muscleChip, selectedMuscle === muscle && styles.muscleChipSelected]}>
-                <Text style={styles.muscleChipText}>{muscle}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-        <TextInput
-          style={styles.input}
-          placeholder="Search exercises"
-          placeholderTextColor="#6e7681"
-          value={search}
-          onChangeText={setSearch}
-        />
-        <ScrollView style={{ maxHeight: 120, borderColor: '#30363d', borderWidth: 1, borderRadius: 6 }}>
-          {filteredExercises.map(ex => (
-            <TouchableOpacity key={ex.id} onPress={() => setExerciseId(ex.id)} style={[styles.exerciseItem, exerciseId === ex.id && { backgroundColor: '#161b22' }]}>
-              <Text style={styles.exerciseText}>{ex.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-        <View style={styles.row}>
-          <Text style={styles.label}>Sets</Text>
-          <TextInput style={styles.smallInput} keyboardType="numeric" value={setsCount} onChangeText={setSetsCount} />
-          <Text style={styles.label}>RPE</Text>
-          <TextInput style={styles.smallInput} keyboardType="numeric" value={rpe} onChangeText={setRpe} />
-          <Text style={styles.label}>Rest (s)</Text>
-          <TextInput style={styles.smallInput} keyboardType="numeric" value={restSec} onChangeText={setRestSec} />
-        </View>
-        <TouchableOpacity onPress={onAddExercise} style={styles.addButton}><Text style={styles.addButtonText}>Add</Text></TouchableOpacity>
+    <View style={{padding:16, backgroundColor:'#171717', borderTopLeftRadius:16, borderTopRightRadius:16}}>
+      <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
+        <Text style={{color:'white', fontWeight:'700'}}>⏸ {mm}:{ss}</Text>
+        <Pressable onPress={onFinish} style={{paddingVertical:8, paddingHorizontal:14, backgroundColor:'#7c5cff', borderRadius:10}}>
+          <Text style={{color:'white', fontWeight:'700'}}>Finish</Text>
+        </Pressable>
       </View>
-      {/* Finish workout */}
-      <TouchableOpacity onPress={() => {
-        const updated = { ...localWorkout, completedAt: new Date().toISOString() };
-        setLocalWorkout(updated);
-        updateWorkout(updated);
-      }} style={[styles.addButton, { marginTop: 16, backgroundColor: '#f85149' }]}> 
-        <Text style={styles.addButtonText}>Finish Workout</Text>
-      </TouchableOpacity>
+      <View style={{height:10}}/>
+      <Text style={{color:'white', fontSize:24, fontWeight:'800'}}>Workout</Text>
+      <View style={{height:8}}/>
+      <Text style={{color:'#aaa'}}>Date</Text>
+      <TextInput
+        value={dateISO.slice(0,10)}
+        onChangeText={(v)=>setDateISO(v.length>=10 ? (v+'T00:00:00.000Z') : dateISO)}
+        style={{backgroundColor:'#1a1a1a', color:'white', padding:10, borderRadius:8}}
+      />
+      <View style={{height:8}}/>
+      <Text style={{color:'#aaa'}}>Notes</Text>
+      <TextInput
+        placeholder="Add notes here..."
+        placeholderTextColor="#777"
+        value={notes}
+        onChangeText={setNotes}
+        style={{backgroundColor:'#1a1a1a', color:'white', padding:10, borderRadius:8}}
+        multiline
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#0d1117',
-    padding: 16,
-    borderRadius: 8,
-    borderColor: '#30363d',
-    borderWidth: 1,
-    marginBottom: 20
-  },
-  heading: {
-    fontSize: 18,
-    color: '#58a6ff',
-    marginBottom: 8,
-    fontWeight: '600'
-  },
-  setRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  setText: {
-    color: '#c9d1d9',
-    flex: 1,
-    marginRight: 4
-  },
-  input: {
-    backgroundColor: '#161b22',
-    color: '#c9d1d9',
-    padding: 4,
-    borderRadius: 4,
-    borderColor: '#30363d',
-    borderWidth: 1,
-    width: 60,
-    marginRight: 4
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#30363d',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  checkboxInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#238636'
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  label: {
-    color: '#8b949e',
-    marginRight: 6
-  },
-  muscleChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#30363d',
-    marginRight: 6
-  },
-  muscleChipSelected: {
-    backgroundColor: '#161b22'
-  },
-  muscleChipText: {
-    color: '#c9d1d9'
-  },
-  exerciseItem: {
-    padding: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#21262d'
-  },
-  exerciseText: {
-    color: '#c9d1d9'
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  smallInput: {
-    backgroundColor: '#161b22',
-    color: '#c9d1d9',
-    padding: 6,
-    borderRadius: 6,
-    borderColor: '#30363d',
-    borderWidth: 1,
-    width: 60,
-    marginRight: 8
-  },
-  addButton: {
-    backgroundColor: '#238636',
-    padding: 10,
-    borderRadius: 6,
-    alignItems: 'center'
-  },
-  addButtonText: {
-    color: '#c9d1d9',
-    fontWeight: '600'
-  }
-});
+function HeaderRow({units}){
+  return (
+    <View style={{flexDirection:'row', paddingVertical:8, paddingHorizontal:12}}>
+      <Text style={{flex:1, color:'#9aa'}}>Set</Text>
+      <Text style={{flex:2, color:'#9aa'}}>Previous</Text>
+      <Text style={{width:80, color:'#9aa', textAlign:'right'}}>{units}</Text>
+      <Text style={{width:60, color:'#9aa', textAlign:'right'}}>Reps</Text>
+      <Text style={{width:40, color:'#9aa', textAlign:'center'}}>✓</Text>
+    </View>
+  );
+}
+
+export default function WorkoutView({ onFinish }) {
+  const { current } = useSession();
+  const { settings } = useSettings();
+  const [celebrate, setCelebrate] = useState(false);
+
+  const startAt = current?.startAt || Date.now();
+  const [elapsed, setElapsed] = useState(Math.floor((Date.now()-startAt)/1000));
+  useEffect(()=>{
+    const id = setInterval(()=>setElapsed(Math.floor((Date.now()-startAt)/1000)),1000);
+    return ()=>clearInterval(id);
+  },[startAt]);
+
+  const [dateISO,setDateISO] = useState(new Date(startAt).toISOString());
+  const [notes,setNotes] = useState('');
+
+  const [exercises, setExercises] = useState([]);
+  const plan = current?.plan;
+
+  useEffect(()=>{(async ()=>{
+    let list = [];
+    if (plan?.exercises?.length){
+      list = plan.exercises.map(e => ({ name: e.name, targetSets: e.sets||3, targetReps: e.reps||10, targetWeight: e.weight||'' }));
+    } else {
+      list = [
+        {name:'Lying Side Lateral Raise', targetSets:3, targetReps:10, targetWeight:''},
+        {name:'Bicep Curl (Dumbbell)', targetSets:3, targetReps:10, targetWeight:''}
+      ];
+    }
+    const withPrev = [];
+    for (const e of list){
+      const prev = await getLastForExercise(e.name);
+      const prevLabel = prev ? `${prev.weight} ${prev.units||'lb'} x ${prev.reps}` : '—';
+      const rows = Array.from({length:e.targetSets}).map((_,i)=>({
+        set: i+1,
+        weight: prev?.weight ?? e.targetWeight ?? '',
+        reps: e.targetReps ?? '',
+        rpe: 7,
+        done:false,
+        prevLabel
+      }));
+      withPrev.push({name:e.name, rows, rest:false});
+    }
+    setExercises(withPrev);
+  })();},[plan]);
+
+  const toggleDone = (ei, si) => {
+    setExercises(xs=>{
+      const c = xs.slice();
+      const r = {...c[ei].rows[si]};
+      r.done = !r.done;
+      c[ei].rows[si] = r;
+      return c;
+    });
+  };
+
+  const updateCell = (ei, si, key, val) => {
+    setExercises(xs=>{
+      const c = xs.slice();
+      const r = {...c[ei].rows[si], [key]: val};
+      c[ei].rows[si] = r;
+      return c;
+    });
+  };
+
+  const addSet = (ei) => {
+    setExercises(xs=>{
+      const c = xs.slice();
+      const last = c[ei].rows[c[ei].rows.length-1] || {weight:'', reps:'', rpe:7, prevLabel:'—'};
+      c[ei].rows.push({ set: c[ei].rows.length+1, weight:last.weight, reps:last.reps, rpe:last.rpe, done:false, prevLabel:last.prevLabel });
+      return c;
+    });
+  };
+
+  const swapExercise = (ei) => {
+    const name = prompt ? prompt('Swap exercise name:', exercises[ei].name) : null;
+    if (!name) return;
+    setExercises(xs=>{
+      const c = xs.slice();
+      c[ei] = { ...c[ei], name };
+      return c;
+    });
+  };
+
+  const onFinishPress = () => {
+    const flatSets = [];
+    const outExercises = exercises.map(ex => ({
+      name: ex.name,
+      sets: ex.rows.map(r => {
+        const one = {
+          weight: Number(r.weight||0),
+          reps: Number(r.reps||0),
+          rpe: Number(r.rpe||0),
+          done: !!r.done
+        };
+        if (one.done) flatSets.push({exercise: ex.name, ...one});
+        return one;
+      })
+    }));
+    setCelebrate(true);
+    setTimeout(()=>setCelebrate(false), 1200);
+    onFinish && onFinish({ dateISO, notes, exercises: outExercises, sets: flatSets });
+  };
+
+  return (
+    <View style={{ flex:1, backgroundColor:'#0b0b0b' }}>
+      <Header elapsedSec={elapsed} onFinish={onFinishPress} dateISO={dateISO} setDateISO={setDateISO} notes={notes} setNotes={setNotes} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+        {exercises.map((ex, ei)=>(
+          <View key={ei} style={{ backgroundColor:'#141414', borderRadius:12, paddingBottom:12 }}>
+            <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', padding:12}}>
+              <Pressable onLongPress={()=>swapExercise(ei)}>
+                <Text style={{color:'#8aa2ff', fontSize:16, fontWeight:'700'}}>{ei+1}  {ex.name}  ›</Text>
+              </Pressable>
+              <View style={{flexDirection:'row', gap:12}}>
+                <Pressable onPress={()=>swapExercise(ei)} style={{paddingVertical:6,paddingHorizontal:10, backgroundColor:'#222', borderRadius:8}}>
+                  <Text style={{color:'white'}}>Swap</Text>
+                </Pressable>
+                <RestTimer />
+              </View>
+            </View>
+
+            <HeaderRow units={settings.units} />
+
+            {ex.rows.map((r, si)=>(
+              <View key={si} style={{flexDirection:'row', alignItems:'center', paddingVertical:6, paddingHorizontal:12, gap:8}}>
+                <Text style={{flex:1, color:'white'}}>{r.set}</Text>
+                <Text style={{flex:2, color:'#aaa'}}>{r.prevLabel}</Text>
+                <TextInput
+                  keyboardType="numeric"
+                  value={String(r.weight ?? '')}
+                  onChangeText={(v)=>updateCell(ei,si,'weight',v)}
+                  style={{width:80, backgroundColor:'#1a1a1a', color:'white', padding:8, borderRadius:8, textAlign:'right'}}
+                />
+                <TextInput
+                  keyboardType="numeric"
+                  value={String(r.reps ?? '')}
+                  onChangeText={(v)=>updateCell(ei,si,'reps',v)}
+                  style={{width:60, backgroundColor:'#1a1a1a', color:'white', padding:8, borderRadius:8, textAlign:'right'}}
+                />
+                <Pressable onPress={()=>toggleDone(ei,si)} style={{width:40, alignItems:'center'}}>
+                  <Text style={{fontSize:18}}>{r.done ? '✅' : '🏋️'}</Text>
+                </Pressable>
+              </View>
+            ))}
+
+            <View style={{paddingHorizontal:12, paddingTop:6}}>
+              <Pressable onPress={()=>addSet(ei)} style={{padding:12, borderRadius:10, backgroundColor:'#333', alignItems:'center'}}>
+                <Text style={{color:'white', fontWeight:'600'}}>+ Add Set</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      {celebrate ? <Confetti count={80} origin={{ x: 0, y: 0 }} fadeOut autoStart /> : null}
+    </View>
+  );
+}
