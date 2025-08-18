@@ -21,7 +21,17 @@ export function SessionProvider({children}){
 
   const startSession=(payload)=>{
     const startAt=Date.now();
-    setCurrent({id:String(startAt),startAt,sets:[],plan:payload.plan||null,programName:payload.programName,week:payload.week,day:payload.day});
+    setCurrent({
+      id:String(startAt),
+      startAt,
+      sets:[],
+      plan:payload.plan||null,
+      programName:payload.programName||null,
+      week:payload.week||null,
+      day:payload.day||null,
+      isLastDay:!!payload.isLastDay,
+      adHoc:!!payload.adHoc
+    });
     setSheetVisible(true);
   };
 
@@ -45,9 +55,16 @@ export function SessionProvider({children}){
       const {appendWorkoutSession}=await import('./HistoryStore');
       await appendWorkoutSession(out);
     }catch{}
+    try{
+      if(out.programName){
+        const P = await import('./ProgramStore');
+        await P.advanceAfterWorkout();
+      }
+    }catch{}
+    const ret = {...out, adHoc: current.adHoc, isLastDay: current.isLastDay};
     setCurrent(null);
     setSheetVisible(false);
-    return out;
+    return ret;
   };
 
   const value=useMemo(()=>({current,startSession,endSession,sheetVisible,setSheetVisible}),[current,sheetVisible,settings]);

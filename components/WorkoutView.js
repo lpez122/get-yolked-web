@@ -26,7 +26,7 @@ function Header({elapsedSec,running,setRunning,onFinish,dateISO,setDateISO,notes
       <Text style={{color:theme.text,fontSize:24,fontWeight:'800'}}>Workout</Text>
       <View style={{height:8}}/>
       <Text style={{color:theme.muted}}>Date</Text>
-      <TextInput value={dateISO.slice(0,10)} onChangeText={(v)=>setDateISO(v.length>=10?(v+'T00:00:00.000Z'):dateISO)} style={{backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:10,borderRadius:8}}/>
+      <TextInput value={dateISO.slice(0,10)} onChangeText={(v)=>setDateISO(v.length>=10?(v+'T00:00:00.000Z'):dateISO)} style={{backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:10,borderRadius:8,textAlign:'center'}}/>
       <View style={{height:8}}/>
       <Text style={{color:theme.muted}}>Notes</Text>
       <TextInput placeholder="Add notes here..." placeholderTextColor={theme.muted} value={notes} onChangeText={setNotes} style={{backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:10,borderRadius:8}} multiline/>
@@ -36,11 +36,11 @@ function Header({elapsedSec,running,setRunning,onFinish,dateISO,setDateISO,notes
 
 function HeaderRow({units}){
   return(
-    <View style={{flexDirection:'row',paddingVertical:8,paddingHorizontal:12}}>
-      <Text style={{flex:1,color:theme.muted}}>Set</Text>
+    <View style={{flexDirection:'row',paddingVertical:8,paddingHorizontal:12,alignItems:'center'}}>
+      <Text style={{flex:1,color:theme.muted,textAlign:'center'}}>Set</Text>
       <Text style={{flex:2,color:theme.muted}}>Previous</Text>
-      <Text style={{width:80,color:theme.muted,textAlign:'right'}}>{units}</Text>
-      <Text style={{width:60,color:theme.muted,textAlign:'right'}}>Reps</Text>
+      <Text style={{width:90,color:theme.muted,textAlign:'center'}}>{units}</Text>
+      <Text style={{width:70,color:theme.muted,textAlign:'center'}}>Reps</Text>
       <Text style={{width:40,color:theme.muted,textAlign:'center'}}>✓</Text>
     </View>
   );
@@ -154,11 +154,12 @@ export default function WorkoutView({onFinish}){
       <ScrollView contentContainerStyle={{padding:16,gap:16}}>
         {exercises.map((ex,ei)=>(
           <View key={ei} style={{backgroundColor:theme.card,borderRadius:12,paddingBottom:12}}>
-            <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',padding:12}}>
+            <View style={{padding:12}}>
               <Text style={{color:theme.accent,fontSize:16,fontWeight:'700'}}>{ei+1}  {ex.name}  ›</Text>
-              <View style={{flexDirection:'row',gap:12,alignItems:'center'}}>
+              <View style={{height:8}}/>
+              <View style={{flexDirection:'row',alignItems:'center',gap:12}}>
                 <RestTimer initialSec={ex.restSec||90}/>
-                <Pressable onPress={()=>openOptions(ei)} style={{paddingVertical:6,paddingHorizontal:10,backgroundColor:theme.surface,borderRadius:8}}>
+                <Pressable onPress={()=>openOptions(ei)} style={{paddingVertical:8,paddingHorizontal:12,backgroundColor:theme.surface,borderRadius:8}}>
                   <Text style={{color:theme.text}}>⋯</Text>
                 </Pressable>
               </View>
@@ -166,10 +167,10 @@ export default function WorkoutView({onFinish}){
             <HeaderRow units={settings.units}/>
             {ex.rows.map((r,si)=>(
               <View key={si} style={{flexDirection:'row',alignItems:'center',paddingVertical:6,paddingHorizontal:12,gap:8}}>
-                <Text style={{flex:1,color:theme.text}}>{r.set}</Text>
+                <Text style={{flex:1,color:theme.text,textAlign:'center'}}>{r.set}</Text>
                 <Text style={{flex:2,color:theme.muted}}>{r.prevLabel}</Text>
-                <TextInput keyboardType="numeric" value={String(r.weight??'')} onChangeText={(v)=>updateCell(ei,si,'weight',v)} style={{width:80,backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:8,borderRadius:8,textAlign:'right'}}/>
-                <TextInput keyboardType="numeric" value={String(r.reps??'')} onChangeText={(v)=>updateCell(ei,si,'reps',v)} style={{width:60,backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:8,borderRadius:8,textAlign:'right'}}/>
+                <TextInput keyboardType="numeric" value={String(r.weight??'')} onChangeText={(v)=>updateCell(ei,si,'weight',v)} style={{width:90,backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
+                <TextInput keyboardType="numeric" value={String(r.reps??'')} onChangeText={(v)=>updateCell(ei,si,'reps',v)} style={{width:70,backgroundColor:theme.card,borderWidth:1,borderColor:theme.border,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
                 <Pressable onPress={()=>toggleDone(ei,si)} style={{width:40,alignItems:'center'}}>
                   <Text style={{fontSize:18}}>{r.done?'✅':'🏋️'}</Text>
                 </Pressable>
