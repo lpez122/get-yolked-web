@@ -19,14 +19,14 @@ export function SessionProvider({children}){
   const [current,setCurrent]=useState(null);
   const [sheetVisible,setSheetVisible]=useState(false);
 
-  const startSession=(payload)=>{ // payload may include plan {exercises:[{name,sets,reps,weight}]}
+  const startSession=(payload)=>{
     const startAt=Date.now();
     setCurrent({id:String(startAt),startAt,sets:[],plan:payload.plan||null,programName:payload.programName,week:payload.week,day:payload.day});
     setSheetVisible(true);
   };
 
-  const endSession=async(finalize)=>{ 
-    if(!current) return null; 
+  const endSession=async(finalize)=>{
+    if(!current) return null;
     const endAt=Date.now();
     const durationSec=Math.max(1,Math.round((endAt-current.startAt)/1000));
     const sets=finalize?.sets??current.sets??[];
@@ -50,8 +50,14 @@ export function SessionProvider({children}){
       await appendWorkoutSession(out);
     }catch{}
 
-    setCurrent(null); setSheetVisible(false); 
-    return out; 
+    try{
+      const { markCompleteAndAdvance } = await import('./ProgramProgress');
+      await markCompleteAndAdvance({ programName: out.programName, week: out.week, day: out.day });
+    }catch{}
+
+    setCurrent(null);
+    setSheetVisible(false);
+    return out;
   };
 
   const value=useMemo(()=>({current,startSession,endSession,sheetVisible,setSheetVisible}),[current,sheetVisible,settings]);
