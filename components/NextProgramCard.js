@@ -1,7 +1,10 @@
 import React from 'react';
 import {View,Text} from 'react-native';
 import EggButton from './EggButton';
+import { useSession } from '../contexts/SessionContext';
 export default function NextProgramCard({programName,week,day,items,onStart}){
+  const { current } = useSession();
+  const inSession = !!current;
   return (
     <View style={{backgroundColor:'#141414',borderRadius:16,padding:14}}>
       <Text style={{color:'white',fontSize:18,fontWeight:'700',marginBottom:8}}>Continue Program</Text>
@@ -18,7 +21,7 @@ export default function NextProgramCard({programName,week,day,items,onStart}){
           </View>))}
         </View>
         <View style={{height:12}}/>
-        <EggButton size={44} label={`Start Week ${week??1} · Day ${day??1}`} onCrack={onStart}/>
+        <EggButton size={44} label={`Start Week ${week??1} · Day ${day??1}`} onCrack={onStart} cracked={inSession}/>
       </View>
     </View>
   );

@@ -1,5 +1,6 @@
 import "react-native-gesture-handler";
 import React from 'react';
+import { View, Text, Image } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,6 +30,15 @@ function iconFor(routeName) {
   }
 }
 
+function Header({ title }) {
+  return (
+    <View style={{height:56, backgroundColor:'#0a0a0a', flexDirection:'row', alignItems:'center', paddingHorizontal:12}}>
+      <Image source={require('./assets/get_yolked_logo.png')} style={{width:28, height:28, marginRight:10, borderRadius:4}} />
+      <Text style={{color:'white', fontSize:18, fontWeight:'700'}}>{title}</Text>
+    </View>
+  );
+}
+
 export default function App(){
   return (
     <ErrorBoundary>
@@ -38,7 +48,7 @@ export default function App(){
             <NavigationContainer>
               <Tab.Navigator
                 screenOptions={({ route }) => ({
-                  headerShown: false,
+                  header: () => <Header title={route.name} />,
                   tabBarStyle: { backgroundColor: '#000' },
                   tabBarActiveTintColor: '#9CA3AF',
                   tabBarInactiveTintColor: '#9CA3AF',
