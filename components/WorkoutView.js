@@ -1,18 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView } from 'react-native';
 import { useSession } from '../contexts/SessionContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getLastForExercise } from '../contexts/HistoryStore';
 import RestTimer from './RestTimer';
 import Confetti from './Confetti';
+import ExerciseOptionsModal from './ExerciseOptionsModal';
+import ExercisePickerModal from './ExercisePickerModal';
 
-function Header({elapsedSec,onFinish,dateISO,setDateISO,notes,setNotes}){
+function Header({elapsedSec, running, setRunning, onFinish, dateISO, setDateISO, notes, setNotes}){
   const mm = String(Math.floor(elapsedSec/60)).padStart(2,'0');
   const ss = String(elapsedSec%60).padStart(2,'0');
   return (
     <View style={{padding:16, backgroundColor:'#171717', borderTopLeftRadius:16, borderTopRightRadius:16}}>
       <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
-        <Text style={{color:'white', fontWeight:'700'}}>⏸ {mm}:{ss}</Text>
+        <Pressable onPress={()=>setRunning(r=>!r)} style={{paddingVertical:8, paddingHorizontal:14, backgroundColor:'#333', borderRadius:10}}>
+          <Text style={{color:'white', fontWeight:'700'}}>{running?'Pause':'Start'} {mm}:{ss}</Text>
+        </Pressable>
         <Pressable onPress={onFinish} style={{paddingVertical:8, paddingHorizontal:14, backgroundColor:'#7c5cff', borderRadius:10}}>
           <Text style={{color:'white', fontWeight:'700'}}>Finish</Text>
         </Pressable>
@@ -52,6 +56,16 @@ function HeaderRow({units}){
   );
 }
 
+function singleReps(e){
+  if (typeof e?.reps === 'number') return e.reps;
+  const hasMin = typeof e?.minReps === 'number';
+  const hasMax = typeof e?.maxReps === 'number';
+  if (hasMin && hasMax) return Math.round((e.minReps + e.maxReps)/2);
+  if (hasMax) return e.maxReps;
+  if (hasMin) return e.minReps;
+  return 10;
+}
+
 export default function WorkoutView({ onFinish }) {
   const { current } = useSession();
   const { settings } = useSettings();
@@ -59,10 +73,12 @@ export default function WorkoutView({ onFinish }) {
 
   const startAt = current?.startAt || Date.now();
   const [elapsed, setElapsed] = useState(Math.floor((Date.now()-startAt)/1000));
+  const [running, setRunning] = useState(true);
   useEffect(()=>{
+    if(!running) return;
     const id = setInterval(()=>setElapsed(Math.floor((Date.now()-startAt)/1000)),1000);
     return ()=>clearInterval(id);
-  },[startAt]);
+  },[startAt, running]);
 
   const [dateISO,setDateISO] = useState(new Date(startAt).toISOString());
   const [notes,setNotes] = useState('');
@@ -70,14 +86,23 @@ export default function WorkoutView({ onFinish }) {
   const [exercises, setExercises] = useState([]);
   const plan = current?.plan;
 
+  const [optIndex, setOptIndex] = useState(-1);
+  const [pickerVisible, setPickerVisible] = useState(false);
+
   useEffect(()=>{(async ()=>{
     let list = [];
-    if (plan?.exercises?.length){
-      list = plan.exercises.map(e => ({ name: e.name, targetSets: e.sets||3, targetReps: e.reps||10, targetWeight: e.weight||'' }));
+    if (Array.isArray(plan?.exercises) && plan.exercises.length) {
+      list = plan.exercises.map(e => ({
+        name: e.name,
+        targetSets: e.sets ?? e.targetSets ?? 3,
+        targetReps: singleReps(e),
+        targetWeight: e.weight ?? e.targetWeight ?? '',
+        restSec: e.restSec ?? 90
+      }));
     } else {
       list = [
-        {name:'Lying Side Lateral Raise', targetSets:3, targetReps:10, targetWeight:''},
-        {name:'Bicep Curl (Dumbbell)', targetSets:3, targetReps:10, targetWeight:''}
+        {name:'Lying Side Lateral Raise', targetSets:3, targetReps:10, targetWeight:'', restSec:90},
+        {name:'Bicep Curl (Dumbbell)',   targetSets:3, targetReps:10, targetWeight:'', restSec:90}
       ];
     }
     const withPrev = [];
@@ -92,7 +117,7 @@ export default function WorkoutView({ onFinish }) {
         done:false,
         prevLabel
       }));
-      withPrev.push({name:e.name, rows, rest:false});
+      withPrev.push({name:e.name, rows, restSec: e.restSec});
     }
     setExercises(withPrev);
   })();},[plan]);
@@ -125,12 +150,32 @@ export default function WorkoutView({ onFinish }) {
     });
   };
 
-  const swapExercise = (ei) => {
-    const name = prompt ? prompt('Swap exercise name:', exercises[ei].name) : null;
-    if (!name) return;
+  const openOptions = (ei) => {
+    setOptIndex(ei);
+  };
+
+  const closeOptions = () => {
+    setOptIndex(-1);
+  };
+
+  const setRestFor = (sec) => {
+    if (optIndex < 0) return;
     setExercises(xs=>{
       const c = xs.slice();
-      c[ei] = { ...c[ei], name };
+      c[optIndex] = { ...c[optIndex], restSec: sec };
+      return c;
+    });
+  };
+
+  const beginSwap = () => {
+    setPickerVisible(true);
+  };
+
+  const onPickExercise = (name) => {
+    if (optIndex < 0) return;
+    setExercises(xs=>{
+      const c = xs.slice();
+      c[optIndex] = { ...c[optIndex], name };
       return c;
     });
   };
@@ -157,24 +202,22 @@ export default function WorkoutView({ onFinish }) {
 
   return (
     <View style={{ flex:1, backgroundColor:'#0b0b0b' }}>
-      <Header elapsedSec={elapsed} onFinish={onFinishPress} dateISO={dateISO} setDateISO={setDateISO} notes={notes} setNotes={setNotes} />
+      <Header elapsedSec={elapsed} running={running} setRunning={setRunning} onFinish={onFinishPress} dateISO={dateISO} setDateISO={setDateISO} notes={notes} setNotes={setNotes} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
         {exercises.map((ex, ei)=>(
           <View key={ei} style={{ backgroundColor:'#141414', borderRadius:12, paddingBottom:12 }}>
             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', padding:12}}>
-              <Pressable onLongPress={()=>swapExercise(ei)}>
+              <Pressable>
                 <Text style={{color:'#8aa2ff', fontSize:16, fontWeight:'700'}}>{ei+1}  {ex.name}  ›</Text>
               </Pressable>
-              <View style={{flexDirection:'row', gap:12}}>
-                <Pressable onPress={()=>swapExercise(ei)} style={{paddingVertical:6,paddingHorizontal:10, backgroundColor:'#222', borderRadius:8}}>
-                  <Text style={{color:'white'}}>Swap</Text>
+              <View style={{flexDirection:'row', gap:12, alignItems:'center'}}>
+                <RestTimer initialSec={ex.restSec || 90} />
+                <Pressable onPress={()=>openOptions(ei)} style={{paddingVertical:6,paddingHorizontal:10, backgroundColor:'#222', borderRadius:8}}>
+                  <Text style={{color:'white'}}>⋯</Text>
                 </Pressable>
-                <RestTimer />
               </View>
             </View>
-
             <HeaderRow units={settings.units} />
-
             {ex.rows.map((r, si)=>(
               <View key={si} style={{flexDirection:'row', alignItems:'center', paddingVertical:6, paddingHorizontal:12, gap:8}}>
                 <Text style={{flex:1, color:'white'}}>{r.set}</Text>
@@ -196,7 +239,6 @@ export default function WorkoutView({ onFinish }) {
                 </Pressable>
               </View>
             ))}
-
             <View style={{paddingHorizontal:12, paddingTop:6}}>
               <Pressable onPress={()=>addSet(ei)} style={{padding:12, borderRadius:10, backgroundColor:'#333', alignItems:'center'}}>
                 <Text style={{color:'white', fontWeight:'600'}}>+ Add Set</Text>
@@ -205,7 +247,19 @@ export default function WorkoutView({ onFinish }) {
           </View>
         ))}
       </ScrollView>
-
+      <ExerciseOptionsModal
+        visible={optIndex>=0}
+        onClose={closeOptions}
+        exerciseName={exercises[optIndex]?.name}
+        restSec={exercises[optIndex]?.restSec || 90}
+        onChangeRestSec={setRestFor}
+        onSwap={beginSwap}
+      />
+      <ExercisePickerModal
+        visible={pickerVisible}
+        onClose={()=>setPickerVisible(false)}
+        onPick={onPickExercise}
+      />
       {celebrate ? <Confetti count={80} origin={{ x: 0, y: 0 }} fadeOut autoStart /> : null}
     </View>
   );
