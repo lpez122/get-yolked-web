@@ -1,3 +1,4 @@
+import { useRoute } from '-navigation/native';
 import React,{useEffect,useState} from 'react';
 import {View,Text,TextInput,Pressable,ScrollView} from 'react-native';
 import {useSession} from '../contexts/SessionContext';
@@ -56,6 +57,7 @@ function singleReps(e){
   return 10;
 }
 
+const __ROUTE__ = useRoute();
 export default function WorkoutView({onFinish}){
   const {current}=useSession();
   const {settings}=useSettings();
@@ -77,7 +79,7 @@ export default function WorkoutView({onFinish}){
   useEffect(()=>{(async()=>{
     let list=[];
     if(Array.isArray(plan?.exercises)&&plan.exercises.length){
-      list=plan.exercises.map(e=>({name:e.name,targetSets:e.sets??e.targetSets??3,targetReps:singleReps(e),targetWeight:e.weight??e.targetWeight??'',restSec:e.restSec??90}));
+      list=plan.exercises.map(e=>({name:e.name,targetSets:(Array.isArray(e.sets)?e.sets.length:(typeof e.targetSets==='number'?e.targetSets:(typeof e.sets==='number'?e.sets:3))),targetReps:singleReps(e),targetWeight:e.weight??e.targetWeight??'',restSec:e.restSec??90}));
     }else{
       list=[{name:'Lying Side Lateral Raise',targetSets:3,targetReps:10,targetWeight:'',restSec:90},{name:'Bicep Curl (Dumbbell)',targetSets:3,targetReps:10,targetWeight:'',restSec:90}];
     }
@@ -190,3 +192,16 @@ export default function WorkoutView({onFinish}){
     </View>
   );
 }
+
+try{
+  if(typeof React!=='undefined'){
+    const {useEffect}=React;
+    useEffect(()=>{
+      const p=(typeof __ROUTE__!=='undefined'&&__ROUTE__&&__ROUTE__.params)?__ROUTE__.params:{};
+      if(p&&p.startNow){
+        try{ if(typeof startTimer==='function') startTimer(); }catch(e){}
+        try{ if(typeof setIsRunning==='function') setIsRunning(true); }catch(e){}
+      }
+    },[]);
+  }
+}catch(e){}
