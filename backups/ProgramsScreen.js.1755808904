@@ -1,0 +1,257 @@
+import React,{useEffect,useMemo,useState} from 'react';
+import {View,Text,FlatList,Pressable,TextInput,Alert} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {theme} from '../constants/theme';
+import ExercisePicker from '../components/ExercisePicker';
+
+async function readJSON(k){try{const v=await AsyncStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
+async function writeJSON(k,v){await AsyncStorage.setItem(k,JSON.stringify(v))}
+async function loadPrograms(){const arr=await readJSON('saved_programs_v1');return Array.isArray(arr)?arr:[]}
+async function savePrograms(list){await writeJSON('saved_programs_v1',list||[])}
+async function getPointer(){const p=await readJSON('current_program_v1');return p||null}
+async function setPointer(programId,week=1,day=1){await writeJSON('current_program_v1',{programId,week,day});await AsyncStorage.removeItem('program_progress_v1')}
+async function clearPointer(){await AsyncStorage.removeItem('current_program_v1');await AsyncStorage.removeItem('program_progress_v1')}
+
+function ensurePlan(p){p.plan=p.plan||{};if(!p.plan[1])p.plan[1]={};if(!p.plan[1][1])p.plan[1][1]=[];return p}
+function dayArray(plan,wk,dy){return (((plan||{})[wk]||{})[dy])||[]}
+function buildFromConfig(name,setsCount=3,reps=10,rpe=7){
+  const sets=Array.from({length:Math.max(1,Number(setsCount)||1)},()=>({weight:'',reps:Number(reps)||0,rpe:Number(rpe)||0}));
+  return {name,sets};
+}
+
+export default function ProgramsScreen(){
+  const [list,setList]=useState([]);
+  const [ptr,setPtr]=useState(null);
+  const [selId,setSelId]=useState(null);
+  const [week,setWeek]=useState(1);
+  const [day,setDay]=useState(1);
+  const [pickerOpen,setPickerOpen]=useState(false);
+
+  const [pName,setPName]=useState('');
+  const [pWeeks,setPWeeks]=useState('1');
+  const [pDays,setPDays]=useState('3');
+
+  async function refresh(){
+    const l=await loadPrograms();setList(l);
+    const p=await getPointer();setPtr(p);
+    if(selId){
+      const cur=l.find(x=>String(x.id)===String(selId));
+      if(cur){setPName(cur.name||'');setPWeeks(String(cur.weeks||1));setPDays(String(cur.days||3))}
+    }
+  }
+  useEffect(()=>{refresh()},[]);
+
+  const current=useMemo(()=>list.find(p=>String(p.id)===String(selId))||null,[list,selId]);
+  const exercises=useMemo(()=>current?dayArray(current.plan,week,day):[],[current,week,day]);
+
+  async function createProgram(){
+    const id=String(Date.now());
+    const p=ensurePlan({id,name:'New Program',weeks:1,days:3,plan:{1:{1:[]}}});
+    const next=[...list,p];
+    setList(next);await savePrograms(next);
+    setSelId(id);setWeek(1);setDay(1);
+    setPName('New Program');setPWeeks('1');setPDays('3');
+  }
+
+  async function persistProgramDetails(){
+    if(!current) return;
+    const updated=list.map(p=>{
+      if(p.id!==current.id) return p;
+      return {...p,name:pName||'Program',weeks:Number(pWeeks)||1,days:Number(pDays)||1};
+    });
+    setList(updated);await savePrograms(updated);
+  }
+
+  async function addSelected(items){
+    if(!current){setPickerOpen(false);return}
+    const adds=(items||[]).map(it=>buildFromConfig(it?.name||'Exercise',3,10,7));
+    const updated=list.map(p=>{
+      if(p.id!==current.id)return p;
+      const cp={...p,plan:{...p.plan}};
+      const wk={...(cp.plan[week]||{})};
+      const arr=[...(wk[day]||[])];
+      cp.plan[week]=wk;
+      wk[day]=[...arr,...adds];
+      return cp;
+    });
+    setList(updated);
+    await savePrograms(updated);
+    setPickerOpen(false);
+  }
+
+  async function updateExerciseConfig(index,field,value){
+    if(!current)return;
+    const updated=list.map(p=>{
+      if(p.id!==current.id)return p;
+      const cp={...p,plan:{...p.plan}};
+      const wk={...(cp.plan[week]||{})};
+      const arr=[...(wk[day]||[])];
+      const ex={...(arr[index]||{name:'Exercise',sets:[{weight:'',reps:10,rpe:7}]})};
+      let sets=Array.isArray(ex.sets)?ex.sets:[{weight:'',reps:10,rpe:7}];
+      if(field==='setsCount'){
+        const n=Math.max(1,Number(value)||1);
+        const base={reps:Number(sets[0]?.reps||10),rpe:Number(sets[0]?.rpe||7)};
+        sets=Array.from({length:n},(_,i)=>({weight:sets[i]?.weight||'',reps:base.reps,rpe:base.rpe}));
+      }else if(field==='reps'){
+        const r=Number(value)||0;
+        sets=sets.map(s=>({...s,reps:r}));
+      }else if(field==='rpe'){
+        const rp=Number(value)||0;
+        sets=sets.map(s=>({...s,rpe:rp}));
+      }
+      ex.sets=sets;
+      arr[index]=ex;
+      wk[day]=arr;
+      cp.plan[week]=wk;
+      return cp;
+    });
+    setList(updated);
+    await savePrograms(updated);
+  }
+
+  async function removeExercise(index){
+    if(!current)return;
+    const updated=list.map(p=>{
+      if(p.id!==current.id)return p;
+      const cp={...p,plan:{...p.plan}};
+      const wk={...(cp.plan[week]||{})};
+      const arr=[...(wk[day]||[])];
+      arr.splice(index,1);
+      wk[day]=arr;
+      cp.plan[week]=wk;
+      return cp;
+    });
+    setList(updated);
+    await savePrograms(updated);
+  }
+
+  async function startProgram(p){
+    await setPointer(p.id,1,1);
+    setPtr(await getPointer());
+    Alert.alert('Started',p.name||'Program');
+  }
+  async function stopProgram(){
+    await clearPointer();
+    setPtr(null);
+    Alert.alert('Stopped','Program removed from Home');
+  }
+
+  function incWeek(){setWeek(w=>Math.max(1,w+1))}
+  function decWeek(){setWeek(w=>Math.max(1,w-1))}
+  function incDay(){setDay(d=>Math.max(1,d+1))}
+  function decDay(){setDay(d=>Math.max(1,d-1))}
+
+  const Label = ({children}) => <Text style={{color:theme.text,fontWeight:'700',marginBottom:6}}>{children}</Text>;
+  const Input = (props) => <TextInput {...props} placeholderTextColor={theme.textDim} style={[{borderWidth:1,borderColor:theme.border,borderRadius:10,paddingHorizontal:12,paddingVertical:10,color:theme.text,backgroundColor:theme.surface},props.style]}/>;
+
+  return(
+    <View style={{flex:1,backgroundColor:theme.bg,padding:16}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <Text style={{color:theme.text,fontSize:20,fontWeight:'800'}}>Programs</Text>
+        <Pressable onPress={createProgram} style={{backgroundColor:theme.accent,paddingHorizontal:14,paddingVertical:10,borderRadius:12}}>
+          <Text style={{color:'#fff',fontWeight:'800'}}>New</Text>
+        </Pressable>
+      </View>
+
+      <FlatList
+        data={list}
+        keyExtractor={item=>String(item.id)}
+        renderItem={({item})=>{
+          const active=ptr&&ptr.programId===item.id;
+          return(
+            <Pressable onPress={()=>{setSelId(item.id);setWeek(1);setDay(1);setPName(item.name||'');setPWeeks(String(item.weeks||1));setPDays(String(item.days||3))}} style={{backgroundColor:theme.card,borderRadius:12,padding:12,marginBottom:10}}>
+              <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+                <Text style={{color:theme.text,fontWeight:'700'}}>{item.name||'Program'}</Text>
+                {active?(
+                  <Pressable onPress={stopProgram} style={{backgroundColor:'#1B2733',paddingHorizontal:12,paddingVertical:8,borderRadius:10}}><Text style={{color:theme.text,fontWeight:'700'}}>Stop</Text></Pressable>
+                ):(
+                  <Pressable onPress={()=>startProgram(item)} style={{backgroundColor:theme.accent,paddingHorizontal:12,paddingVertical:8,borderRadius:10}}><Text style={{color:'#fff',fontWeight:'800'}}>Start</Text></Pressable>
+                )}
+              </View>
+              {!!active && <Text style={{color:theme.textDim,marginTop:6}}>Active</Text>}
+            </Pressable>
+          )
+        }}
+        ListEmptyComponent={<Text style={{color:theme.textDim}}>No programs yet.</Text>}
+      />
+
+      {current && (
+        <View style={{backgroundColor:theme.card,borderRadius:14,padding:12,marginTop:8}}>
+          <Text style={{color:theme.text,fontSize:16,fontWeight:'800',marginBottom:10}}>Program Details</Text>
+          <Label>Name</Label>
+          <Input value={pName} onChangeText={setPName} onBlur={persistProgramDetails} placeholder="Program name" />
+          <View style={{flexDirection:'row',gap:12,marginTop:10}}>
+            <View style={{flex:1}}>
+              <Label>Weeks</Label>
+              <Input value={pWeeks} onChangeText={setPWeeks} onBlur={persistProgramDetails} keyboardType="numeric"/>
+            </View>
+            <View style={{flex:1}}>
+              <Label>Days/Week</Label>
+              <Input value={pDays} onChangeText={setPDays} onBlur={persistProgramDetails} keyboardType="numeric"/>
+            </View>
+          </View>
+
+          <View style={{height:12}}/>
+
+          <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <Text style={{color:theme.text,fontSize:16,fontWeight:'800'}}>Schedule Builder</Text>
+            <View style={{flexDirection:'row',gap:8}}>
+              <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
+                <Pressable onPress={decWeek} style={{backgroundColor:'#0F1A26',paddingHorizontal:10,paddingVertical:6,borderRadius:8}}><Text style={{color:theme.text}}>-</Text></Pressable>
+                <Text style={{color:theme.text}}>Week {week}</Text>
+                <Pressable onPress={incWeek} style={{backgroundColor:'#0F1A26',paddingHorizontal:10,paddingVertical:6,borderRadius:8}}><Text style={{color:theme.text}}>+</Text></Pressable>
+              </View>
+              <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
+                <Pressable onPress={decDay} style={{backgroundColor:'#0F1A26',paddingHorizontal:10,paddingVertical:6,borderRadius:8}}><Text style={{color:theme.text}}>-</Text></Pressable>
+                <Text style={{color:theme.text}}>Day {day}</Text>
+                <Pressable onPress={incDay} style={{backgroundColor:'#0F1A26',paddingHorizontal:10,paddingVertical:6,borderRadius:8}}><Text style={{color:theme.text}}>+</Text></Pressable>
+              </View>
+            </View>
+          </View>
+
+          <Pressable onPress={()=>setPickerOpen(true)} style={{alignSelf:'stretch',backgroundColor:theme.accent,paddingHorizontal:14,paddingVertical:12,borderRadius:12,marginBottom:8,alignItems:'center'}}>
+            <Text style={{color:'#fff',fontWeight:'800'}}>Add Exercises</Text>
+          </Pressable>
+
+          <FlatList
+            data={exercises}
+            keyExtractor={(item,i)=>String(i)}
+            renderItem={({item,index})=>{
+              const setsCount=Array.isArray(item.sets)?item.sets.length:1;
+              const baseReps=Array.isArray(item.sets)&&item.sets[0]?Number(item.sets[0].reps||0):0;
+              const baseRpe=Array.isArray(item.sets)&&item.sets[0]?Number(item.sets[0].rpe||0):0;
+              return(
+                <View style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:theme.border}}>
+                  <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <Text style={{color:theme.text,fontWeight:'700'}} numberOfLines={1}>{item.name||'Exercise'}</Text>
+                    <Pressable onPress={()=>removeExercise(index)} style={{backgroundColor:'#1B2733',paddingHorizontal:12,paddingVertical:8,borderRadius:10}}>
+                      <Text style={{color:theme.text,fontWeight:'700'}}>Remove</Text>
+                    </Pressable>
+                  </View>
+                  <View style={{flexDirection:'row',gap:8}}>
+                    <View style={{flex:1}}>
+                      <Text style={{color:theme.textDim,marginBottom:6,fontWeight:'700'}}>Sets</Text>
+                      <Input value={String(setsCount)} onChangeText={v=>updateExerciseConfig(index,'setsCount',v)} keyboardType="numeric"/>
+                    </View>
+                    <View style={{flex:1}}>
+                      <Text style={{color:theme.textDim,marginBottom:6,fontWeight:'700'}}>Reps</Text>
+                      <Input value={String(baseReps)} onChangeText={v=>updateExerciseConfig(index,'reps',v)} keyboardType="numeric"/>
+                    </View>
+                    <View style={{flex:1}}>
+                      <Text style={{color:theme.textDim,marginBottom:6,fontWeight:'700'}}>RPE</Text>
+                      <Input value={String(baseRpe)} onChangeText={v=>updateExerciseConfig(index,'rpe',v)} keyboardType="numeric"/>
+                    </View>
+                  </View>
+                </View>
+              )
+            }}
+            ListEmptyComponent={<Text style={{color:theme.textDim}}>No exercises yet.</Text>}
+            style={{marginTop:4}}
+          />
+        </View>
+      )}
+
+      <ExercisePicker visible={pickerOpen} onClose={()=>setPickerOpen(false)} onAddSelected={addSelected}/>
+    </View>
+  )
+}

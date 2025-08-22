@@ -1,0 +1,57 @@
+import React,{useEffect,useMemo,useState} from 'react';
+import {Modal,View,Text,TextInput,Pressable,ScrollView} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {theme} from '../constants/theme';
+
+async function loadLibrary(){
+  try{const v2=await AsyncStorage.getItem('exercise_library_v2');if(v2){const arr=JSON.parse(v2||'[]');return Array.isArray(arr)?arr:[]}}catch(e){}
+  try{const gy=await AsyncStorage.getItem('getYolkedData');if(gy){const obj=JSON.parse(gy||'{}');return Array.isArray(obj.exercises)?obj.exercises:[]}}catch(e){}
+  return [];
+}
+function musclesOf(x){const a=[].concat(x.primaryMuscles||[],x.secondaryMuscles||[],x.muscleGroups||[]).filter(Boolean);const s=new Set();const out=[];for(const m of a){const v=String(m).trim();if(v&&!s.has(v.toLowerCase())){s.add(v.toLowerCase());out.push(v)}}return out}
+function uniqSorted(arr){const s=new Set();for(const x of arr){const v=String(x||'').trim();if(v)s.add(v)}return Array.from(s).sort((a,b)=>a.localeCompare(b))}
+function Chip({label,active,onPress}){return(<Pressable onPress={onPress} style={{paddingHorizontal:12,paddingVertical:8,borderRadius:999,marginRight:8,marginBottom:8,backgroundColor:active?theme.accent:'#0F1A26',borderWidth:1,borderColor:active?theme.accent:theme.border}}><Text style={{color:active?'#fff':theme.text,fontWeight:'700'}}>{label}</Text></Pressable>)}
+
+export default function ExerciseEditor({visible,onClose,onSaved}){
+  const [all,setAll]=useState([]);
+  const [name,setName]=useState('');
+  const [equip,setEquip]=useState('');
+  const [muscles,setMuscles]=useState([]);
+  useEffect(()=>{if(visible){loadLibrary().then(setAll);setName('');setEquip('');setMuscles([])}},[visible]);
+
+  const equipmentTags=useMemo(()=>uniqSorted(all.map(x=>x.equipment).filter(Boolean)),[all]);
+  const muscleTags=useMemo(()=>{const pool=[];for(const x of all)pool.push(...musclesOf(x));return uniqSorted(pool)},[all]);
+  const canSave=name.trim().length>0 && equip && muscles.length>0;
+
+  function toggleMuscle(tag){setMuscles(prev=>prev.includes(tag)?prev.filter(x=>x!==tag):[...prev,tag])}
+  function save(){if(!canSave)return;const ex={id:`user_${Date.now()}`,name:name.trim(),equipment:equip,primaryMuscles:[...muscles],secondaryMuscles:[]};onSaved&&onSaved(ex)}
+
+  return(
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{flex:1,backgroundColor:'#0009',alignItems:'center',justifyContent:'center'}}>
+        <View style={{width:'92%',maxHeight:'88%',backgroundColor:theme.card,borderRadius:14,padding:12}}>
+          <Text style={{color:theme.text,fontWeight:'800',fontSize:20,marginBottom:10}}>New Exercise</Text>
+          <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={theme.textDim} style={{borderWidth:1,borderColor:theme.border,borderRadius:10,paddingHorizontal:12,paddingVertical:10,color:theme.text,backgroundColor:theme.surface,marginBottom:10}}/>
+          <ScrollView style={{maxHeight:140,marginBottom:10}}>
+            <Text style={{color:theme.textDim,marginBottom:6,fontWeight:'700'}}>Equipment</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap'}}>
+              {equipmentTags.map(e=><Chip key={e} label={e} active={equip===e} onPress={()=>setEquip(e)}/>)}
+            </View>
+            <Text style={{color:theme.textDim,marginVertical:6,fontWeight:'700'}}>Muscles</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap'}}>
+              {muscleTags.map(m=><Chip key={m} label={m} active={muscles.includes(m)} onPress={()=>toggleMuscle(m)}/>)}
+            </View>
+          </ScrollView>
+          <View style={{flexDirection:'row',justifyContent:'flex-end',gap:8}}>
+            <Pressable onPress={onClose} style={{backgroundColor:'#1B2733',paddingHorizontal:18,paddingVertical:12,borderRadius:10}}>
+              <Text style={{color:theme.text,fontWeight:'700'}}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={save} disabled={!canSave} style={{backgroundColor:canSave?theme.accent:'#234',paddingHorizontal:22,paddingVertical:12,borderRadius:10,opacity:canSave?1:0.6}}>
+              <Text style={{color:'#fff',fontWeight:'800'}}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  )
+}

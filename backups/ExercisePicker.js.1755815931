@@ -1,0 +1,104 @@
+import React,{useEffect,useMemo,useState} from 'react';
+import {Modal,View,Text,TextInput,FlatList,Pressable,ScrollView} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {theme} from '../constants/theme';
+
+async function loadLibrary(){
+  try{const v2=await AsyncStorage.getItem('exercise_library_v2');if(v2){const arr=JSON.parse(v2||'[]');return Array.isArray(arr)?arr:[]}}catch(e){}
+  try{const gy=await AsyncStorage.getItem('getYolkedData');if(gy){const obj=JSON.parse(gy||'{}');return Array.isArray(obj.exercises)?obj.exercises:[]}}catch(e){}
+  return [];
+}
+function musclesOf(x){const a=[].concat(x.primaryMuscles||[],x.secondaryMuscles||[],x.muscleGroups||[]).filter(Boolean);const s=new Set();const out=[];for(const m of a){const v=String(m).trim();if(v&&!s.has(v.toLowerCase())){s.add(v.toLowerCase());out.push(v)}}return out}
+function uniqSorted(arr){const s=new Set();for(const x of arr){const v=String(x||'').trim();if(v)s.add(v)}return Array.from(s).sort((a,b)=>a.localeCompare(b))}
+function Chip({label,active,onPress}){return(<Pressable onPress={onPress} style={{paddingHorizontal:12,paddingVertical:8,borderRadius:999,marginRight:8,marginBottom:8,backgroundColor:active?theme.accent:'#0F1A26',borderWidth:1,borderColor:active?theme.accent:theme.border}}><Text style={{color:active?'#fff':theme.text,fontWeight:'700'}}>{label}</Text></Pressable>)}
+
+export default function ExercisePicker({visible,onClose,onAddSelected}){
+  const [q,setQ]=useState('');
+  const [all,setAll]=useState([]);
+  const [equip,setEquip]=useState([]);
+  const [muscles,setMuscles]=useState([]);
+  const [selected,setSelected]=useState({});
+
+  useEffect(()=>{if(visible){loadLibrary().then(setAll);setSelected({});setQ('');setEquip([]);setMuscles([])}},[visible]);
+
+  const equipmentTags=useMemo(()=>uniqSorted(all.map(x=>x.equipment).filter(Boolean)),[all]);
+  const muscleTags=useMemo(()=>{const pool=[];for(const x of all)pool.push(...musclesOf(x));return uniqSorted(pool)},[all]);
+
+  const data=useMemo(()=>{
+    const t=String(q||'').toLowerCase();
+    return all.filter(x=>{
+      if(t && !String(x.name||'').toLowerCase().includes(t)) return false;
+      if(equip.length){if(!equip.includes(String(x.equipment||''))) return false}
+      if(muscles.length){const ms=musclesOf(x).map(s=>s.toLowerCase());for(const m of muscles){if(!ms.includes(m.toLowerCase())) return false}}
+      return true;
+    }).slice(0,300);
+  },[all,q,equip,muscles]);
+
+  function toggle(map,key){const next={...map};if(next[key]) delete next[key]; else next[key]=true;return next}
+  function toggleEquip(tag){setEquip(prev=>prev.includes(tag)?prev.filter(x=>x!==tag):[...prev,tag])}
+  function toggleMuscle(tag){setMuscles(prev=>prev.includes(tag)?prev.filter(x=>x!==tag):[...prev,tag])}
+  function toggleItem(it){const k=String(it.id||it.name);setSelected(prev=>toggle(prev,k))}
+  function addNow(){const out=data.filter(it=>selected[String(it.id||it.name)]);if(out.length===0) return onClose&&onClose();onAddSelected&&onAddSelected(out)}
+
+  const selCount=Object.keys(selected).length;
+
+  return(
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{flex:1,backgroundColor:'#0009',alignItems:'center',justifyContent:'center'}}>
+        <View style={{width:'92%',maxHeight:'86%',backgroundColor:theme.card,borderRadius:14,padding:12}}>
+          <Text style={{color:theme.text,fontWeight:'800',fontSize:20,marginBottom:10}}>Add Exercises</Text>
+
+          <TextInput value={q} onChangeText={setQ} placeholder="Search" placeholderTextColor={theme.textDim} style={{borderWidth:1,borderColor:theme.border,borderRadius:10,paddingHorizontal:12,paddingVertical:10,color:theme.text,marginBottom:10}}/>
+
+          <ScrollView style={{maxHeight:140,marginBottom:10}}>
+            <Text style={{color:theme.textDim,marginBottom:6,fontWeight:'700'}}>Equipment</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap'}}>
+              {equipmentTags.map(e=><Chip key={e} label={e} active={equip.includes(e)} onPress={()=>toggleEquip(e)}/>)}
+            </View>
+            <Text style={{color:theme.textDim,marginVertical:6,fontWeight:'700'}}>Muscles</Text>
+            <View style={{flexDirection:'row',flexWrap:'wrap'}}>
+              {muscleTags.map(m=><Chip key={m} label={m} active={muscles.includes(m)} onPress={()=>toggleMuscle(m)}/>)}
+            </View>
+          </ScrollView>
+
+          <FlatList
+            data={data}
+            keyExtractor={(item,i)=>String(item.id||item.name||i)}
+            ItemSeparatorComponent={()=> <View style={{height:1,backgroundColor:theme.border}}/>}
+            renderItem={({item})=>{
+              const k=String(item.id||item.name);
+              const active=!!selected[k];
+              return(
+                <Pressable onPress={()=>toggleItem(item)} style={{paddingVertical:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+                  <View style={{flex:1,marginRight:10}}>
+                    <Text style={{color:theme.text,fontWeight:'700'}}>{item.name||'Exercise'}</Text>
+                    <Text style={{color:theme.textDim,marginTop:2}} numberOfLines={1}>{[item.equipment,musclesOf(item).join(', ')].filter(Boolean).join(' • ')}</Text>
+                  </View>
+                  <View style={{width:24,height:24,borderRadius:8,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:active?theme.accent:theme.border,backgroundColor:active?theme.accent:'transparent'}}>
+                    <Text style={{color:active?'#fff':theme.text}}>✓</Text>
+                  </View>
+                </Pressable>
+              )
+            }}
+            ListEmptyComponent={<Text style={{color:theme.textDim}}>No matches</Text>}
+            style={{marginBottom:12}}
+          />
+
+          <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+            <Pressable onPress={()=>{setQ('');setEquip([]);setMuscles([]);setSelected({})}} style={{backgroundColor:'#0F1A26',paddingHorizontal:14,paddingVertical:10,borderRadius:10}}>
+              <Text style={{color:theme.text,fontWeight:'700'}}>Clear</Text>
+            </Pressable>
+            <View style={{flexDirection:'row',gap:8}}>
+              <Pressable onPress={onClose} style={{backgroundColor:'#1B2733',paddingHorizontal:18,paddingVertical:12,borderRadius:10}}>
+                <Text style={{color:theme.text,fontWeight:'700'}}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={addNow} style={{backgroundColor:theme.accent,paddingHorizontal:22,paddingVertical:12,borderRadius:10}}>
+                <Text style={{color:'#fff',fontWeight:'800'}}>Add{selCount?` (${selCount})`:''}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  )
+}

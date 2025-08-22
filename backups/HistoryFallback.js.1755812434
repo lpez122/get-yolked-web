@@ -1,0 +1,67 @@
+import React,{useEffect,useState,useMemo} from 'react';
+import {View,Text,FlatList,Pressable} from 'react-native';
+import {getHistory,clearHistory} from '../utils/history';
+import {theme} from '../constants/theme';
+function fmt(sec){const s=Math.max(0,Math.floor(sec));const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);const r=s%60;return (h?`${h}:`:'')+String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');}
+function when(ms){try{return new Date(ms).toLocaleString()}catch(e){return String(ms||'')}}
+export default function History(){
+  const [items,setItems]=useState([]);
+  const [open,setOpen]=useState({});
+  async function load(){const arr=await getHistory();arr.sort((a,b)=>Number(b.startedAt||0)-Number(a.startedAt||0));setItems(arr);}
+  useEffect(()=>{load()},[]);
+  const totals=useMemo(()=>items.reduce((acc,w)=>{acc.workouts+=1;acc.duration+=Number(w.durationSec||0);acc.exercises+=Number(w.totalExercises||((w.exercises||[]).length));acc.sets+=Number(w.totalSets||0);acc.completed+=Number(w.setsCompleted||0);return acc;},{workouts:0,duration:0,exercises:0,sets:0,completed:0}),[items]);
+  return(
+    <View style={{flex:1,backgroundColor:theme.bg,padding:16}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <Text style={{color:theme.text,fontSize:20,fontWeight:'800'}}>History</Text>
+        <Pressable onPress={async()=>{await clearHistory();load()}} style={{paddingHorizontal:12,paddingVertical:8,backgroundColor:theme.accent,borderRadius:10}}><Text style={{color:'#fff',fontWeight:'700'}}>Clear</Text></Pressable>
+      </View>
+      <View style={{backgroundColor:theme.card,borderRadius:12,padding:12,marginBottom:12}}>
+        <Text style={{color:theme.text,fontWeight:'700'}}>Totals</Text>
+        <Text style={{color:theme.textDim,marginTop:6}}>Workouts: {totals.workouts}</Text>
+        <Text style={{color:theme.textDim}}>Duration: {fmt(totals.duration)}</Text>
+        <Text style={{color:theme.textDim}}>Exercises: {totals.exercises}</Text>
+        <Text style={{color:theme.textDim}}>Sets: {totals.sets}  Completed: {totals.completed}</Text>
+      </View>
+      <FlatList
+        data={items}
+        keyExtractor={(_,i)=>String(i)}
+        renderItem={({item,index})=>{
+          const exs=item.exercises||[];
+          const isOpen=!!open[index];
+          const tsets=item.totalSets||exs.reduce((n,e)=>n+(e.sets?e.sets.length:0),0);
+          const done=item.setsCompleted||exs.reduce((n,e)=>n+(e.sets?e.sets.filter(s=>s.done).length:0),0);
+          return(
+            <View style={{backgroundColor:theme.card,borderRadius:12,padding:12,marginBottom:12}}>
+              <Pressable onPress={()=>setOpen(o=>({...o,[index]:!isOpen}))} style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
+                <View style={{flex:1,marginRight:8}}>
+                  <Text style={{color:theme.text,fontWeight:'700'}}>{item.programName||'Workout'}</Text>
+                  <Text style={{color:theme.textDim,marginTop:4}}>{when(item.startedAt)} • {fmt(Number(item.durationSec||0))}</Text>
+                  <Text style={{color:theme.textDim,marginTop:2}}>Exercises: {item.totalExercises||exs.length} • Sets: {tsets} • Completed: {done}</Text>
+                </View>
+                <Text style={{color:theme.text}}>{isOpen?'▴':'▾'}</Text>
+              </Pressable>
+              {isOpen?(
+                <View style={{marginTop:10}}>
+                  {exs.map((ex,i)=>(
+                    <View key={i} style={{backgroundColor:theme.surface,borderRadius:10,padding:10,marginBottom:8}}>
+                      <Text style={{color:theme.text,fontWeight:'700'}}>{ex.name||'Exercise'}</Text>
+                      {(ex.sets||[]).map((s,j)=>(
+                        <View key={j} style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:4,borderBottomWidth:j<(ex.sets.length-1)?1:0,borderBottomColor:theme.border}}>
+                          <Text style={{color:theme.textDim,marginRight:8}}>Set {j+1}</Text>
+                          <Text style={{color:theme.text}}>{String(s.lbs||0)} lbs × {String(s.reps||0)}</Text>
+                          <Text style={{color:s.done?theme.accent:'#334B63',fontWeight:'800'}}>{s.done?'✓':'○'}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              ):null}
+            </View>
+          )
+        }}
+        ListEmptyComponent={<Text style={{color:theme.textDim}}>No workouts yet.</Text>}
+      />
+    </View>
+  );
+}

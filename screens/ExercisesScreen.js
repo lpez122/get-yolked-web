@@ -1,50 +1,62 @@
-import React,{useMemo,useState} from 'react';
-import {View,Text,ScrollView,Pressable,TextInput} from 'react-native';
+import React,{useEffect,useMemo,useState} from 'react';
+import {View,Text,FlatList,TextInput,Pressable} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {theme} from '../constants/theme';
-import {useExerciseLibrary} from '../contexts/ExerciseLibrary';
-import NewExerciseModal from '../components/NewExerciseModal';
+import ExerciseEditor from '../components/ExerciseEditor';
+
+async function readJSON(k){try{const v=await AsyncStorage.getItem(k);return v?JSON.parse(v):null}catch(e){return null}}
+async function writeJSON(k,v){await AsyncStorage.setItem(k,JSON.stringify(v))}
+async function loadLibrary(){
+  const v2=await readJSON('exercise_library_v2');
+  if(Array.isArray(v2)) return v2;
+  const gy=await readJSON('getYolkedData');
+  if(gy&&Array.isArray(gy.exercises)) return gy.exercises;
+  return [];
+}
 
 export default function ExercisesScreen(){
-  const {list}=useExerciseLibrary();
-  const [showNew,setShowNew]=useState(false);
+  const [all,setAll]=useState([]);
   const [q,setQ]=useState('');
-  const filtered=useMemo(()=>{
-    if(!q.trim()) return list;
-    const s=q.toLowerCase();
-    return list.filter(e=>
-      e.name.toLowerCase().includes(s) ||
-      (e.primaryMuscles||[]).some(m=>m.toLowerCase().includes(s)) ||
-      (e.muscleGroups||[]).some(m=>m.toLowerCase().includes(s)) ||
-      (e.equipment||'').toLowerCase().includes(s)
-    );
-  },[list,q]);
-  const byPrimary=useMemo(()=>{
-    const m={};
-    for(const e of filtered){
-      const arr=(e.primaryMuscles&&e.primaryMuscles.length?e.primaryMuscles:(e.muscleGroups||[]));
-      for(const p of arr){ if(!m[p]) m[p]=[]; m[p].push(e.name); }
-    }
-    return m;
-  },[filtered]);
-  const groups=Object.keys(byPrimary).sort();
+  const [editorOpen,setEditorOpen]=useState(false);
+
+  async function refresh(){setAll(await loadLibrary())}
+  useEffect(()=>{refresh()},[]);
+
+  const data=useMemo(()=>{
+    const t=String(q||'').toLowerCase();
+    return [...all].filter(x=>String(x.name||'').toLowerCase().includes(t)).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  },[all,q]);
+
+  async function saveNew(ex){
+    const base=await loadLibrary();
+    const next=[...base,ex];
+    await writeJSON('exercise_library_v2',next);
+    setEditorOpen(false);
+    setAll(next);
+  }
+
   return(
-    <View style={{flex:1,backgroundColor:theme.bg}}>
-      <ScrollView contentContainerStyle={{padding:16,gap:16}}>
-        <Pressable onPress={()=>setShowNew(true)} style={{padding:14,borderRadius:10,backgroundColor:theme.accent,alignItems:'center'}}>
-          <Text style={{color:theme.text,fontWeight:'700'}}>+ New Exercise</Text>
+    <View style={{flex:1,backgroundColor:theme.bg,padding:16}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <Text style={{color:theme.text,fontSize:20,fontWeight:'800'}}>Exercises</Text>
+        <Pressable onPress={()=>setEditorOpen(true)} style={{backgroundColor:theme.accent,paddingHorizontal:14,paddingVertical:10,borderRadius:12}}>
+          <Text style={{color:'#fff',fontWeight:'800'}}>New</Text>
         </Pressable>
-        <TextInput placeholder="Search by name, muscle, or equipment" placeholderTextColor={theme.muted} value={q} onChangeText={setQ} style={{backgroundColor:theme.card,color:theme.text,padding:10,borderRadius:8}}/>
-        {groups.map(g=>(
-          <View key={g} style={{backgroundColor:theme.card,borderRadius:12,padding:12}}>
-            <Text style={{color:theme.text,fontWeight:'700',marginBottom:8}}>{g}</Text>
-            {byPrimary[g].sort().map((name,i)=>(
-              <Text key={i} style={{color:theme.muted,paddingVertical:4}}>{name}</Text>
-            ))}
+      </View>
+      <TextInput value={q} onChangeText={setQ} placeholder="Search exercises" placeholderTextColor={theme.textDim} style={{borderWidth:1,borderColor:theme.border,borderRadius:10,paddingHorizontal:12,paddingVertical:10,color:theme.text,backgroundColor:theme.surface,marginBottom:10}}/>
+      <FlatList
+        data={data}
+        keyExtractor={(item,i)=>String(item.id||item.name||i)}
+        ItemSeparatorComponent={()=> <View style={{height:1,backgroundColor:theme.border}}/>}
+        renderItem={({item})=>(
+          <View style={{paddingVertical:10}}>
+            <Text style={{color:theme.text,fontWeight:'700'}} numberOfLines={1}>{item.name||'Exercise'}</Text>
+            <Text style={{color:theme.textDim,marginTop:4}} numberOfLines={1}>{[item.equipment,[...(item.primaryMuscles||[]),...(item.secondaryMuscles||[])].join(', ')].filter(Boolean).join(' • ')}</Text>
           </View>
-        ))}
-        {groups.length===0?<Text style={{color:theme.muted}}>No exercises yet. Add one.</Text>:null}
-      </ScrollView>
-      <NewExerciseModal visible={showNew} onClose={()=>setShowNew(false)}/>
+        )}
+        ListEmptyComponent={<Text style={{color:theme.textDim}}>No exercises.</Text>}
+      />
+      <ExerciseEditor visible={editorOpen} onClose={()=>setEditorOpen(false)} onSaved={saveNew}/>
     </View>
-  );
+  )
 }

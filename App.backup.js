@@ -11,6 +11,8 @@ import AnalyticsScreen from './screens/AnalyticsScreen';
 
 import { SettingsProvider } from './contexts/SettingsContext';
 import { SessionProvider } from './contexts/SessionContext';
+import { navTheme } from './constants/theme.js';
+
 
 const Tab = createBottomTabNavigator();
 
@@ -18,7 +20,7 @@ export default function App(){
   return (
     <SettingsProvider>
       <SessionProvider>
-        <NavigationContainer>
+        <NavigationContainer theme={navTheme}>
           <Tab.Navigator screenOptions={{headerShown:false, tabBarStyle:{backgroundColor:'#000'}}}>
             <Tab.Screen name="Home" component={HomeScreen} />
             <Tab.Screen name="Programs" component={ProgramsScreen} />

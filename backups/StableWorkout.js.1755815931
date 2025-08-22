@@ -1,0 +1,191 @@
+import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {View,Text,StyleSheet,Pressable,FlatList,TextInput,Modal,Alert} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useNavigation,useRoute} from '@react-navigation/native';
+import {theme} from '../constants/theme';
+import {useProgramProgress} from '../contexts/ProgramProgressContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {getPreset} from '../data/ProgramPresets';
+import ExercisePicker from '../components/ExercisePicker';
+
+function fmt(sec){const s=Math.max(0,Math.floor(sec));const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);const r=s%60;return(h?`${h}:`:'')+String(m).padStart(2,'0')+':'+String(r).padStart(2,'0')}
+
+function ExerciseCard({ex,index,onToggleSet,onUpdateSet,onAddSet,onOpenMenu}){return(
+  <View style={styles.exCard}>
+    <View style={styles.exHeader}>
+      <Pressable onPress={()=>onOpenMenu(index)} style={styles.exTitleWrap}><Text style={styles.exTitle} numberOfLines={1}>{ex.name}</Text></Pressable>
+      <Pressable onPress={()=>onOpenMenu(index)} style={styles.menuDot}><Text style={{color:theme.text}}>⋯</Text></Pressable>
+    </View>
+    <View style={styles.tableHeader}>
+      <Text style={[styles.th,{flex:0.6}]}>Set</Text>
+      <Text style={[styles.th,{flex:2}]}>Previous</Text>
+      <Text style={[styles.th,{textAlign:'right',flex:0.9}]}>lbs</Text>
+      <Text style={[styles.th,{textAlign:'right',flex:0.9}]}>reps</Text>
+      <Text style={[styles.th,{flex:0.6}]}/>
+    </View>
+    {ex.sets.map((s,i)=>(
+      <View key={i} style={styles.setRow}>
+        <Text style={[styles.cell,{flex:0.6}]}>{i+1}</Text>
+        <Text style={[styles.cell,{flex:2,color:theme.textDim}]}>—</Text>
+        <TextInput value={String(s.lbs??'')} onChangeText={t=>onUpdateSet(index,i,{lbs:t})} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textDim} style={[styles.input,s.done&&styles.doneInput]}/>
+        <TextInput value={String(s.reps??'')} onChangeText={t=>onUpdateSet(index,i,{reps:t})} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textDim} style={[styles.input,s.done&&styles.doneInput]}/>
+        <Pressable onPress={()=>onToggleSet(index,i)} style={[styles.checkBtn,s.done&&styles.checkBtnOn]}><Text style={[styles.checkMark,s.done&&styles.checkMarkOn]}>✓</Text></Pressable>
+      </View>
+    ))}
+    <Pressable onPress={()=>onAddSet(index)} style={styles.addSetBtn}><Text style={styles.addSetText}>+ Add Set</Text></Pressable>
+  </View>
+)}
+
+export default function StableWorkout(){
+  const {top,bottom}=useSafeAreaInsets();
+  const nav=useNavigation();
+  const route=useRoute();
+  const {begin,advance}=useProgramProgress();
+  const [elapsed,setElapsed]=useState(0);
+  const [running,setRunning]=useState(true);
+  const tickRef=useRef(null);
+  const lastRef=useRef(Date.now());
+  const [exercises,setExercises]=useState([]);
+  const [meta,setMeta]=useState({origin:null,programId:null,programName:'',week:1,day:1});
+  const [menuOpen,setMenuOpen]=useState(null);
+  const [showNewEx,setShowNewEx]=useState(false);
+  const [newExName,setNewExName]=useState('');
+  const [showPicker,setShowPicker]=useState(false);
+
+  function buildSets(e){if(Array.isArray(e.sets))return e.sets.map(s=>({lbs:s.lbs??'',reps:s.reps??'',done:false}));const n=e.sets??3;const r=e.reps??10;return Array.from({length:n},()=>({lbs:'',reps:r,done:false}))}
+  function fromSaved(prog,wk,dy){const arr=(((prog.plan||{})[wk]||{})[dy])||[];const norm=arr.map(e=>({id:e.id||('ex_'+Math.random().toString(36).slice(2)),name:e.name||'Exercise',notes:'',sets:buildSets(e)}));return norm.length?norm:[{id:'ex_1',name:'New Exercise',notes:'',sets:[{lbs:'',reps:'',done:false}]}]}
+  function fromPreset(name,wk,dy){const preset=getPreset(name,wk,dy)||{exercises:[]};const arr=(preset.exercises||[]).map(e=>({id:e.id||('ex_'+Math.random().toString(36).slice(2)),name:e.name||'Exercise',notes:'',sets:buildSets(e)}));return arr.length?arr:[{id:'ex_1',name:'New Exercise',notes:'',sets:[{lbs:'',reps:'',done:false}]}]}
+
+  useEffect(()=>{(async()=>{
+    const p=route?.params||{};
+    const mode=p.mode||'empty';
+    let origin=null, programId=null, programName='', week=Number(p.week||1), day=Number(p.day||1);
+    if(mode==='program'){
+      if(p.programId){
+        const raw=await AsyncStorage.getItem('saved_programs_v1');const list=JSON.parse(raw||'[]');const prog=list.find(q=>q.id===p.programId);
+        if(prog){origin='saved';programId=prog.id;programName=prog.name||'Program';setExercises(fromSaved(prog,week,day));await begin({programId,week,day,status:'in_progress'})}
+        else{setExercises(fromPreset('Get Yolked 4.0',1,1))}
+      }else if(p.programName){
+        origin='preset';programName=p.programName;setExercises(fromPreset(programName,week,day));await begin({programName,week,day,status:'in_progress'})
+      }else{
+        setExercises([{id:'ex_1',name:'New Exercise',notes:'',sets:[{lbs:'',reps:'',done:false}]}])
+      }
+    }else{
+      setExercises([{id:'ex_1',name:'New Exercise',notes:'',sets:[{lbs:'',reps:'',done:false}]}])
+    }
+    setMeta({origin,programId,programName,week,day});
+  })()},[route]);
+
+  useEffect(()=>{if(!running)return;lastRef.current=Date.now();tickRef.current=setInterval(()=>{const now=Date.now();const dt=(now-lastRef.current)/1000;lastRef.current=now;setElapsed(v=>v+dt);},500);return()=>{if(tickRef.current)clearInterval(tickRef.current);tickRef.current=null;}},[running]);
+
+  function pause(){setRunning(false)}
+  function resume(){setRunning(true)}
+  async function finish(){
+    if(meta.origin){try{await advance()}catch(e){}}
+    try{Alert.alert('Great job','You finished your workout!')}catch(e){try{alert('Great job! You finished your workout!')}catch(e2){}}
+    setRunning(false);setElapsed(0);setExercises([]);nav.goBack();
+  }
+
+  function toggleSetDone(exIdx,setIdx){setExercises(prev=>{const next=prev.map((ex,i)=>i===exIdx?{...ex}:ex);const ex=next[exIdx];ex.sets=ex.sets.map((s,j)=>j===setIdx?{...s,done:!s.done}:s);return next;});}
+  function updateSet(exIdx,setIdx,patch){setExercises(prev=>{const next=prev.map((ex,i)=>i===exIdx?{...ex}:ex);const ex=next[exIdx];ex.sets=ex.sets.map((s,j)=>j===setIdx?{...s,...patch}:s);return next;});}
+  function addSet(exIdx){setExercises(prev=>{const next=prev.map((ex,i)=>i===exIdx?{...ex}:ex);next[exIdx].sets=[...next[exIdx].sets,{lbs:'',reps:'',done:false}];return next;});}
+  function addExerciseFromPicker(item){
+    const name=item?.name||'Exercise';
+    setExercises(prev=>[...prev,{id:`ex_${Date.now()}`,name,notes:'',sets:[{lbs:'',reps:'',done:false}]}]);
+    setShowPicker(false);
+  }
+
+  const header=useMemo(()=>(
+    <View style={[styles.header,{paddingTop:top+8}]}>
+      <Text style={styles.clock}>{fmt(elapsed)}</Text>
+      <View style={{flexDirection:'row',gap:8}}>
+        <Pressable onPress={running?pause:resume} style={[styles.hBtn,!running&&{backgroundColor:'#1B2733'}]}><Text style={styles.hBtnText}>{running?'Pause':'Resume'}</Text></Pressable>
+        <Pressable onPress={finish} style={[styles.hBtn,{backgroundColor:theme.accent}]}><Text style={[styles.hBtnText,{color:'#fff'}]}>Finish</Text></Pressable>
+      </View>
+    </View>
+  ),[running,elapsed,top]);
+
+  return(
+    <View style={styles.sheet}>
+      {header}
+      <FlatList
+        data={exercises}
+        keyExtractor={(_,i)=>String(i)}
+        contentContainerStyle={{paddingBottom:bottom+24}}
+        renderItem={({item,index})=>(
+          <ExerciseCard
+            ex={item}
+            index={index}
+            onToggleSet={toggleSetDone}
+            onUpdateSet={updateSet}
+            onAddSet={addSet}
+            onOpenMenu={()=>setMenuOpen(index)}
+          />
+        )}
+        ListFooterComponent={
+          <Pressable onPress={()=>setShowPicker(true)} style={styles.addExercise}>
+            <Text style={styles.addExerciseText}>+ Add Exercise</Text>
+          </Pressable>
+        }
+      />
+      <Modal visible={menuOpen!==null} transparent animationType="fade" onRequestClose={()=>setMenuOpen(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={()=>setMenuOpen(null)}>
+          <View style={styles.menuCard}>
+            <Pressable onPress={()=>{setShowPicker(true);setMenuOpen(null)}} style={styles.menuItem}><Text style={styles.menuText}>Pick From Library…</Text></Pressable>
+            <Pressable onPress={()=>{setShowNewEx(true);setMenuOpen(null)}} style={styles.menuItem}><Text style={styles.menuText}>Create Custom…</Text></Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+      <Modal visible={showNewEx} transparent animationType="slide" onRequestClose={()=>setShowNewEx(false)}>
+        <View style={styles.newExWrap}>
+          <View style={styles.newExCard}>
+            <Text style={styles.newExTitle}>New Exercise</Text>
+            <TextInput value={newExName} onChangeText={setNewExName} placeholder="Exercise name" placeholderTextColor={theme.textDim} style={styles.newExInput}/>
+            <View style={{flexDirection:'row',gap:8,marginTop:8}}>
+              <Pressable onPress={()=>setShowNewEx(false)} style={[styles.hBtn,{backgroundColor:'#1B2733'}]}><Text style={styles.hBtnText}>Cancel</Text></Pressable>
+              <Pressable onPress={()=>{setExercises(prev=>[...prev,{id:`ex_custom_${Date.now()}`,name:newExName||'Custom Exercise',notes:'',sets:[{lbs:'',reps:'',done:false}]}]);setNewExName('');setShowNewEx(false)}} style={[styles.hBtn,{backgroundColor:theme.accent}]}><Text style={[styles.hBtnText,{color:'#fff'}]}>Add</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <ExercisePicker visible={showPicker} onClose={()=>setShowPicker(false)} onSelect={addExerciseFromPicker}/>
+    </View>
+  );
+}
+
+const BRIGHT='#66B3FF';
+
+const styles=StyleSheet.create({
+  sheet:{flex:1,backgroundColor:theme.bg},
+  header:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingHorizontal:16,paddingBottom:8,backgroundColor:theme.bg},
+  clock:{color:theme.text,fontSize:28,fontWeight:'700'},
+  hBtn:{paddingHorizontal:14,paddingVertical:10,borderRadius:12,backgroundColor:'#13293D'},
+  hBtnText:{color:theme.text,fontWeight:'700'},
+  exCard:{backgroundColor:theme.card,marginHorizontal:12,marginTop:12,borderRadius:14,padding:12},
+  exHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:6},
+  exTitleWrap:{flex:1,marginRight:8},
+  exTitle:{color:theme.text,fontSize:16,fontWeight:'700'},
+  menuDot:{width:32,height:32,alignItems:'center',justifyContent:'center',borderRadius:8,backgroundColor:'#0F1A26'},
+  tableHeader:{flexDirection:'row',paddingVertical:6,borderBottomWidth:1,borderBottomColor:theme.border},
+  th:{flex:1,color:theme.textDim,fontSize:12,textTransform:'uppercase',letterSpacing:.5},
+  setRow:{flexDirection:'row',alignItems:'center',paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#0F1A26',gap:8},
+  cell:{flex:1,color:theme.text},
+  input:{width:78,color:'#fff',borderWidth:1,borderColor:'#1C3553',borderRadius:10,paddingVertical:6,paddingHorizontal:10,textAlign:'center',alignSelf:'flex-end'},
+  doneInput:{borderColor:BRIGHT,backgroundColor:'#0A2340'},
+  checkBtn:{flex:0.6,height:30,borderRadius:8,borderWidth:2,borderColor:'#334B63',alignItems:'center',justifyContent:'center'},
+  checkBtnOn:{borderColor:BRIGHT,backgroundColor:'#0A2340'},
+  checkMark:{color:'#334B63',fontWeight:'900'},
+  checkMarkOn:{color:BRIGHT},
+  addSetBtn:{marginTop:8,alignSelf:'flex-start',paddingVertical:6,paddingHorizontal:12,borderRadius:10,backgroundColor:'#0F1A26'},
+  addSetText:{color:'#B8CCE0',fontWeight:'600'},
+  addExercise:{marginTop:16,alignSelf:'center',backgroundColor:theme.accent,paddingHorizontal:18,paddingVertical:12,borderRadius:12},
+  addExerciseText:{color:'#fff',fontWeight:'800'},
+  modalBackdrop:{flex:1,backgroundColor:'#0009',alignItems:'center',justifyContent:'center'},
+  menuCard:{width:260,backgroundColor:theme.surface,borderRadius:14,overflow:'hidden'},
+  menuItem:{padding:14,borderBottomWidth:1,borderBottomColor:theme.border},
+  menuText:{color:theme.text,fontWeight:'600',textAlign:'center'},
+  newExWrap:{flex:1,backgroundColor:'#0008',alignItems:'center',justifyContent:'center'},
+  newExCard:{width:'85%',backgroundColor:theme.surface,borderRadius:16,padding:16},
+  newExTitle:{color:theme.text,fontWeight:'800',fontSize:18,marginBottom:8},
+  newExInput:{borderWidth:1,borderColor:'#1C3553',borderRadius:12,paddingHorizontal:12,paddingVertical:10,color:'#fff'}
+});

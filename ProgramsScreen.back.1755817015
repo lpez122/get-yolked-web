@@ -1,0 +1,149 @@
+import React,{useMemo,useState} from 'react';
+import {View,Text,TextInput,Pressable,ScrollView,Alert} from 'react-native';
+import {theme} from '../constants/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import ExercisePicker from '../components/ExercisePicker';
+import {getSavedPrograms,savePrograms,startProgramById} from '../utils/programState';
+
+function defSet(){return {weight:0,reps:0,rpe:7}}
+function ensure(plan,w,d){const W=String(w),D=String(d);if(!plan[W]) plan[W]={}; if(!Array.isArray(plan[W][D])) plan[W][D]=[]; return plan}
+function newProg(){return {id:String(Date.now()),name:'New Program',weeks:1,days:3,plan:{'1':{'1':[]}},cursorW:1,cursorD:1}}
+
+export default function ProgramsScreen(){
+  const [p,setP]=useState(newProg());
+  const [pickerOpen,setPickerOpen]=useState(false);
+
+  function setField(k,v){setP(prev=>({...prev,[k]:v}))}
+  function move(field,delta,limitField){
+    setP(prev=>{const lim=Number(prev[limitField]||1);let v=Number(prev[field]||1)+delta; if(v<1)v=1; if(v>lim)v=lim; return {...prev,[field]:v}})
+  }
+  function inc(field,delta,min,max){
+    setP(prev=>{
+      let v=Number(prev[field]||0)+delta; if(isNaN(v)) v=min; v=Math.max(min,Math.min(max,v));
+      const next={...prev,[field]:v};
+      for(let w=1; w<=next.weeks; w++){for(let d=1; d<=next.days; d++){ensure(next.plan,w,d)}}
+      if(next.cursorW>next.weeks) next.cursorW=next.weeks;
+      if(next.cursorD>next.days) next.cursorD=next.days;
+      return next;
+    })
+  }
+
+  function openPicker(){setPickerOpen(true)}
+  function onConfirm(list){
+    if(!Array.isArray(list)||!list.length){setPickerOpen(false);return}
+    setP(prev=>{
+      const plan={...prev.plan}; ensure(plan,prev.cursorW,prev.cursorD);
+      const mapped=list.map(x=>({name:x.name,sets:[defSet()]}));
+      plan[String(prev.cursorW)][String(prev.cursorD)]=[...plan[String(prev.cursorW)][String(prev.cursorD)],...mapped];
+      return {...prev,plan};
+    });
+    setPickerOpen(false);
+  }
+
+  const dayItems=useMemo(()=>(((p.plan||{})[String(p.cursorW)]||{})[String(p.cursorD)]||[]),[p]);
+  function mutateSetCount(idx,delta){
+    setP(prev=>{
+      const plan={...prev.plan}; ensure(plan,prev.cursorW,prev.cursorD);
+      const arr=plan[String(prev.cursorW)][String(prev.cursorD)].slice();
+      const it={...arr[idx]};
+      const count=Math.max(1,(it.sets?.length||1)+delta);
+      it.sets=Array.from({length:count},(_,i)=>it.sets?.[i]??defSet());
+      arr[idx]=it; plan[String(prev.cursorW)][String(prev.cursorD)]=arr;
+      return {...prev,plan};
+    })
+  }
+  function mutateRepRpe(idx,repDelta,rpeDelta){
+    setP(prev=>{
+      const plan={...prev.plan}; ensure(plan,prev.cursorW,prev.cursorD);
+      const arr=plan[String(prev.cursorW)][String(prev.cursorD)].slice();
+      const it={...arr[idx]};
+      it.sets=(it.sets||[]).map(s=>({weight:s.weight??0,reps:Math.max(0,(s.reps??0)+repDelta),rpe:Math.max(1,Math.min(10,(s.rpe??7)+rpeDelta))}));
+      arr[idx]=it; plan[String(prev.cursorW)][String(prev.cursorD)]=arr;
+      return {...prev,plan};
+    })
+  }
+
+  async function save(){
+    const list=await getSavedPrograms();
+    const idx=list.findIndex(x=>String(x.id)===String(p.id));
+    const store={id:p.id,name:p.name,weeks:p.weeks,days:p.days,plan:p.plan};
+    if(idx>=0) list[idx]=store; else list.push(store);
+    await savePrograms(list);
+    Alert.alert('Saved','Program saved');
+    setP(newProg());
+  }
+  async function start(){
+    await save();
+    await startProgramById(p.id);
+    Alert.alert('Started',`${p.name} is active`);
+  }
+
+  return(
+    <ScrollView style={{flex:1,backgroundColor:theme.bg}} contentContainerStyle={{padding:16}}>
+      <View style={{backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:16}}>
+        <Text style={{color:theme.text,fontWeight:'800',fontSize:18,marginBottom:10}}>Program Details</Text>
+        <Text style={{color:theme.textDim,marginBottom:6}}>Name</Text>
+        <TextInput value={p.name} onChangeText={t=>setField('name',t)} placeholder="Name" placeholderTextColor={theme.textDim} style={{borderWidth:1,borderColor:theme.border,borderRadius:12,paddingHorizontal:12,paddingVertical:10,color:theme.text,backgroundColor:theme.surface,marginBottom:12}}/>
+        <View style={{flexDirection:'row',gap:12,marginBottom:12}}>
+          <View style={{flex:1}}>
+            <Text style={{color:theme.textDim,marginBottom:6}}>Weeks</Text>
+            <View style={{flexDirection:'row',gap:8}}>
+              <Pressable onPress={()=>inc('weeks',-1,1,12)} style={{paddingHorizontal:14,paddingVertical:10,backgroundColor:'#0F1A26',borderRadius:12}}><Text style={{color:theme.text}}>-</Text></Pressable>
+              <TextInput editable={false} value={String(p.weeks)} style={{flex:1,textAlign:'center',borderWidth:1,borderColor:theme.border,borderRadius:12,color:theme.text,paddingVertical:10,backgroundColor:theme.surface}}/>
+              <Pressable onPress={()=>inc('weeks',1,1,12)} style={{paddingHorizontal:14,paddingVertical:10,backgroundColor:'#0F1A26',borderRadius:12}}><Text style={{color:theme.text}}>+</Text></Pressable>
+            </View>
+          </View>
+          <View style={{flex:1}}>
+            <Text style={{color:theme.textDim,marginBottom:6}}>Days/Week</Text>
+            <View style={{flexDirection:'row',gap:8}}>
+              <Pressable onPress={()=>inc('days',-1,1,7)} style={{paddingHorizontal:14,paddingVertical:10,backgroundColor:'#0F1A26',borderRadius:12}}><Text style={{color:theme.text}}>-</Text></Pressable>
+              <TextInput editable={false} value={String(p.days)} style={{flex:1,textAlign:'center',borderWidth:1,borderColor:theme.border,borderRadius:12,color:theme.text,paddingVertical:10,backgroundColor:theme.surface}}/>
+              <Pressable onPress={()=>inc('days',1,1,7)} style={{paddingHorizontal:14,paddingVertical:10,backgroundColor:'#0F1A26',borderRadius:12}}><Text style={{color:theme.text}}>+</Text></Pressable>
+            </View>
+          </View>
+        </View>
+
+        <Text style={{color:theme.text,fontWeight:'800',fontSize:18,marginTop:6,marginBottom:10}}>Schedule Builder</Text>
+        <View style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:12}}>
+          <Text style={{color:theme.textDim}}>Week {p.cursorW}</Text>
+          <Pressable onPress={()=>move('cursorW',-1,'weeks')} style={{paddingHorizontal:10,paddingVertical:8,backgroundColor:'#0F1A26',borderRadius:10}}><Text style={{color:theme.text}}>-</Text></Pressable>
+          <Pressable onPress={()=>move('cursorW',1,'weeks')} style={{paddingHorizontal:10,paddingVertical:8,backgroundColor:'#0F1A26',borderRadius:10}}><Text style={{color:theme.text}}>+</Text></Pressable>
+          <View style={{width:16}}/>
+          <Text style={{color:theme.textDim}}>Day {p.cursorD}</Text>
+          <Pressable onPress={()=>move('cursorD',-1,'days')} style={{paddingHorizontal:10,paddingVertical:8,backgroundColor:'#0F1A26',borderRadius:10}}><Text style={{color:theme.text}}>-</Text></Pressable>
+          <Pressable onPress={()=>move('cursorD',1,'days')} style={{paddingHorizontal:10,paddingVertical:8,backgroundColor:'#0F1A26',borderRadius:10}}><Text style={{color:theme.text}}>+</Text></Pressable>
+        </View>
+
+        <Pressable onPress={openPicker} style={{backgroundColor:theme.accent,borderRadius:12,paddingVertical:14,alignItems:'center',marginBottom:10}}>
+          <Text style={{color:'#fff',fontWeight:'800'}}>Add Exercises</Text>
+        </Pressable>
+
+        {dayItems.map((it,idx)=>(
+          <View key={idx} style={{backgroundColor:theme.surface,borderRadius:12,padding:10,marginBottom:8,borderWidth:1,borderColor:theme.border}}>
+            <Text style={{color:theme.text,fontWeight:'700',marginBottom:8}} numberOfLines={1}>{it.name}</Text>
+            <View style={{flexDirection:'row',alignItems:'center',gap:8,marginBottom:6}}>
+              <Text style={{color:theme.textDim}}>Sets</Text>
+              <Pressable onPress={()=>mutateSetCount(idx,-1)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>-</Text></Pressable>
+              <Text style={{color:theme.text}}>{it.sets?.length||1}</Text>
+              <Pressable onPress={()=>mutateSetCount(idx,1)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>+</Text></Pressable>
+              <View style={{width:14}}/>
+              <Pressable onPress={()=>mutateRepRpe(idx,1,0)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>+Rep</Text></Pressable>
+              <Pressable onPress={()=>mutateRepRpe(idx,-1,0)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>-Rep</Text></Pressable>
+              <Pressable onPress={()=>mutateRepRpe(idx,0,1)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>+RPE</Text></Pressable>
+              <Pressable onPress={()=>mutateRepRpe(idx,0,-1)} style={{paddingHorizontal:10,paddingVertical:6,backgroundColor:'#0F1A26',borderRadius:8}}><Text style={{color:theme.text}}>-RPE</Text></Pressable>
+            </View>
+          </View>
+        ))}
+
+        <Pressable onPress={save} style={{backgroundColor:theme.accent,borderRadius:12,paddingVertical:14,alignItems:'center',marginTop:8}}>
+          <Text style={{color:'#fff',fontWeight:'800'}}>Review & Save</Text>
+        </Pressable>
+        <Pressable onPress={start} style={{backgroundColor:'#1B2733',borderRadius:12,paddingVertical:12,alignItems:'center',marginTop:10}}>
+          <Text style={{color:theme.text,fontWeight:'700'}}>Start</Text>
+        </Pressable>
+      </View>
+
+      <ExercisePicker visible={pickerOpen} onClose={()=>setPickerOpen(false)} onConfirm={onConfirm} multi={true}/>
+    </ScrollView>
+  )
+}
