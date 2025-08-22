@@ -1,12 +1,12 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {View,Text,ScrollView,Pressable,TextInput,Alert} from 'react-native';
+import {View,Text,ScrollView,Pressable,TextInput,Alert,Modal} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {theme} from '../constants/theme';
 import ExerciseSelectModal from '../components/ExerciseSelectModal';
 import * as P from '../contexts/ProgramStore';
-import {useExerciseLibrary} from '../contexts/ExerciseLibrary';
 
 const PROGRAMS_KEY='saved_programs_v1';
+const ACTIVE_IDS_KEY='active_saved_program_ids';
 
 function Section({title,children}){
   return(
@@ -18,9 +18,9 @@ function Section({title,children}){
 }
 
 export default function ProgramsScreen(){
-  const {list:lib}=useExerciseLibrary();
   const [view,setView]=useState('list');
   const [saved,setSaved]=useState([]);
+  const [activeIds,setActiveIds]=useState([]);
   const [pickerOpen,setPickerOpen]=useState(false);
   const [form,setForm]=useState({name:'',weeks:'4',days:'4'});
   const weeks=Number(form.weeks||1);
@@ -28,16 +28,45 @@ export default function ProgramsScreen(){
   const [plan,setPlan]=useState({});
   const [weekIdx,setWeekIdx]=useState(1);
   const [dayIdx,setDayIdx]=useState(1);
+  const [dupMode,setDupMode]=useState(null);
+  const [dupTargetWeek,setDupTargetWeek]=useState(1);
+  const [dupTargetDay,setDupTargetDay]=useState(1);
+  const [incompleteSticky,setIncompleteSticky]=useState(false);
 
   useEffect(()=>{(async()=>{
     const raw=JSON.parse(await AsyncStorage.getItem(PROGRAMS_KEY)||'[]');
     setSaved(raw);
+    const ids=JSON.parse(await AsyncStorage.getItem(ACTIVE_IDS_KEY)||'[]');
+    setActiveIds(Array.isArray(ids)?ids:[]);
   })()},[]);
 
   const savePrograms=async(arr)=>{
     setSaved(arr);
     await AsyncStorage.setItem(PROGRAMS_KEY,JSON.stringify(arr));
   };
+
+  const persistActive=async(ids)=>{
+    setActiveIds(ids);
+    await AsyncStorage.setItem(ACTIVE_IDS_KEY,JSON.stringify(ids));
+  };
+
+  const computeMissing=()=>{
+    const miss=[];
+    for(let w=1;w<=weeks;w++){
+      for(let d=1;d<=days;d++){
+        const list=(((plan[w]||{})[d])||[]);
+        if(!list.length) miss.push({w,d});
+      }
+    }
+    return miss;
+  };
+
+  useEffect(()=>{
+    if(incompleteSticky){
+      const miss=computeMissing();
+      if(miss.length===0) setIncompleteSticky(false);
+    }
+  },[plan,weeks,days,incompleteSticky]);
 
   const startFromSaved=async(id)=>{
     const prog=saved.find(x=>x.id===id);
@@ -58,12 +87,24 @@ export default function ProgramsScreen(){
     const keep=prev.filter(t=>!t.id.startsWith(`tpl_${prog.id}_`));
     await AsyncStorage.setItem('day_templates_v1',JSON.stringify([...keep,...templates]));
     await P.setActive({name:prog.name,weeks:prog.weeks,days:(prog.weeks*prog.days),dayTemplates:map});
-    Alert.alert('Program Started',`${prog.name} is active.`);
+    const ids=new Set(activeIds);
+    ids.add(id);
+    await persistActive(Array.from(ids));
+    Alert.alert('Program Started',`${prog.name} added to active.`);
+  };
+
+  const stopActive=async(id)=>{
+    const ids=activeIds.filter(x=>x!==id);
+    await persistActive(ids);
+    Alert.alert('Program Stopped','Removed from active.');
   };
 
   const removeSaved=async(id)=>{
     const arr=saved.filter(x=>x.id!==id);
     await savePrograms(arr);
+    if(activeIds.includes(id)){
+      await stopActive(id);
+    }
   };
 
   const exercisesForCurrent=useMemo(()=>(((plan[weekIdx]||{})[dayIdx])||[]),[plan,weekIdx,dayIdx]);
@@ -106,46 +147,57 @@ export default function ProgramsScreen(){
     setDayIdx(1);
   };
 
-  const duplicateWeek=()=>{
-    if(weekIdx>=weeks) return;
-    setPlan(prev=>{
-      const wsrc=prev[weekIdx]||{};
-      const copy={};
-      for(let d=1;d<=days;d++){copy[d]=JSON.parse(JSON.stringify(wsrc[d]||[]));}
-      return {...prev,[weekIdx+1]:copy};
-    });
+  const openDupDay=()=>{
+    setDupMode('day');
+    setDupTargetWeek(weekIdx);
+    setDupTargetDay(dayIdx);
   };
 
-  const duplicateDay=()=>{
-    setPlan(prev=>{
-      const w={...(prev[weekIdx]||{})};
-      const src=w[dayIdx]||[];
-      return {...prev,[weekIdx]:{...w,[dayIdx+1]:JSON.parse(JSON.stringify(src))}};
-    });
+  const openDupWeek=()=>{
+    setDupMode('week');
+    setDupTargetWeek(weekIdx<weeks?weekIdx+1:weeks);
   };
 
-  const removeDay=()=>{
-    setPlan(prev=>{
-      const w={...(prev[weekIdx]||{})};
-      const next={...w};
-      delete next[dayIdx];
-      return {...prev,[weekIdx]:next};
-    });
+  const performDuplicate=()=>{
+    if(dupMode==='day'){
+      setPlan(prev=>{
+        const src=((prev[weekIdx]||{})[dayIdx])||[];
+        const w={...(prev[dupTargetWeek]||{})};
+        w[dupTargetDay]=JSON.parse(JSON.stringify(src));
+        return {...prev,[dupTargetWeek]:w};
+      });
+    }else if(dupMode==='week'){
+      setPlan(prev=>{
+        const src=prev[weekIdx]||{};
+        const copy={};
+        for(let d=1;d<=days;d++){ copy[d]=JSON.parse(JSON.stringify(src[d]||[])); }
+        return {...prev,[dupTargetWeek]:copy};
+      });
+    }
+    setDupMode(null);
   };
 
   const saveProgram=async()=>{
     if(!form.name.trim()||weeks<1||days<1){Alert.alert('Missing info','Enter name, weeks, and days.');return;}
+    const miss=[];
     for(let w=1;w<=weeks;w++){
       for(let d=1;d<=days;d++){
-        const have=(((plan[w]||{})[d])||[]).length>0;
-        if(!have){Alert.alert('Incomplete','Each week/day must have at least one exercise.');return;}
+        if(!(((plan[w]||{})[d]||[]).length)) miss.push(1);
       }
+    }
+    if(miss.length){
+      setIncompleteSticky(true);
+      return;
     }
     const obj={id:String(Date.now()),name:form.name.trim(),weeks,days,plan};
     const arr=[obj,...saved];
     await savePrograms(arr);
     setView('list');
     Alert.alert('Saved',`${obj.name} saved.`);
+  };
+
+  const handlePickerDone=(names)=>{
+    addExercisesByNames(names);
   };
 
   if(view==='list'){
@@ -159,7 +211,10 @@ export default function ProgramsScreen(){
                 <Text style={{color:theme.text,fontWeight:'600'}}>{p.name}</Text>
                 <Text style={{color:theme.muted}}>Weeks {p.weeks} • Days/week {p.days}</Text>
                 <View style={{flexDirection:'row',gap:8,marginTop:8}}>
-                  <Pressable onPress={()=>startFromSaved(p.id)} style={{padding:10,borderRadius:8,backgroundColor:theme.accent}}><Text style={{color:theme.text}}>Start</Text></Pressable>
+                  {activeIds.includes(p.id)
+                    ? <Pressable onPress={()=>stopActive(p.id)} style={{padding:10,borderRadius:8,backgroundColor:theme.surface}}><Text style={{color:theme.text}}>Stop</Text></Pressable>
+                    : <Pressable onPress={()=>startFromSaved(p.id)} style={{padding:10,borderRadius:8,backgroundColor:theme.accent}}><Text style={{color:theme.text}}>Start</Text></Pressable>
+                  }
                   <Pressable onPress={()=>{setForm({name:p.name,weeks:String(p.weeks),days:String(p.days)});setPlan(p.plan);setWeekIdx(1);setDayIdx(1);setView('create');}} style={{padding:10,borderRadius:8,backgroundColor:theme.surface}}><Text style={{color:theme.text}}>Edit</Text></Pressable>
                   <Pressable onPress={()=>removeSaved(p.id)} style={{padding:10,borderRadius:8,backgroundColor:theme.surface}}><Text style={{color:theme.text}}>Delete</Text></Pressable>
                 </View>
@@ -174,9 +229,15 @@ export default function ProgramsScreen(){
     );
   }
 
+  const missingCount=(()=>{
+    let n=0;
+    for(let w=1;w<=weeks;w++){ for(let d=1;d<=days;d++){ if(!(((plan[w]||{})[d]||[]).length)) n++; } }
+    return n;
+  })();
+
   return(
     <View style={{flex:1,backgroundColor:theme.bg}}>
-      <ScrollView contentContainerStyle={{padding:16,gap:16}}>
+      <ScrollView contentContainerStyle={{padding:16,gap:16,paddingBottom:incompleteSticky?80:16}}>
         <Section title="Program Details">
           <Text style={{color:theme.muted,marginBottom:6}}>Name</Text>
           <TextInput value={form.name} onChangeText={(v)=>setForm(s=>({...s,name:v}))} style={{backgroundColor:theme.surface,color:theme.text,padding:10,borderRadius:8}}/>
@@ -196,7 +257,7 @@ export default function ProgramsScreen(){
         <Section title="Schedule Builder">
           <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:8}}>
             {Array.from({length:weeks},(_,i)=>i+1).map(w=>(
-              <Pressable key={w} onPress={()=>{const t=Math.max(1,Math.min(weeks,w));setWeekIdx(t);setDayIdx(1);}} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:8,backgroundColor:w===weekIdx?theme.accent:theme.surface}}>
+              <Pressable key={w} onPress={()=>moveWeek(w)} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:8,backgroundColor:w===weekIdx?theme.accent:theme.surface}}>
                 <Text style={{color:theme.text}}>Week {w}</Text>
               </Pressable>
             ))}
@@ -213,32 +274,29 @@ export default function ProgramsScreen(){
             <Text style={{color:theme.text,fontWeight:'700'}}>Add Exercises</Text>
           </Pressable>
 
-          {(((plan[weekIdx]||{})[dayIdx])||[]).map((e,ei)=>(
+          {exercisesForCurrent.map((e,ei)=>(
             <View key={ei} style={{paddingVertical:10,borderBottomWidth:1,borderColor:theme.border}}>
               <Text style={{color:theme.text,fontWeight:'600',marginBottom:6}}>{e.name}</Text>
               {e.sets.map((s,si)=>(
                 <View key={si} style={{flexDirection:'row',gap:8,alignItems:'center',marginBottom:6}}>
                   <Text style={{color:theme.muted,width:28,textAlign:'center'}}>{si+1}</Text>
-                  <TextInput value={String(s.weight??'')} onChangeText={(v)=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const d=[...(((prev[weekIdx]||{})[dayIdx])||[])];const e2={...d[ei]};const s2={...e2.sets[si],weight:v};e2.sets=e2.sets.map((x,idx)=>idx===si?s2:x);d[ei]=e2;return {...prev,[weekIdx]:{...w,[dayIdx]:d}}});}} keyboardType="numeric" placeholder="lb/kg" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
-                  <TextInput value={String(s.reps??'')} onChangeText={(v)=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const d=[...(((prev[weekIdx]||{})[dayIdx])||[])];const e2={...d[ei]};const s2={...e2.sets[si],reps:v};e2.sets=e2.sets.map((x,idx)=>idx===si?s2:x);d[ei]=e2;return {...prev,[weekIdx]:{...w,[dayIdx]:d}}});}} keyboardType="numeric" placeholder="reps" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
-                  <TextInput value={String(s.rpe??'')} onChangeText={(v)=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const d=[...(((prev[weekIdx]||{})[dayIdx])||[])];const e2={...d[ei]};const s2={...e2.sets[si],rpe:v};e2.sets=e2.sets.map((x,idx)=>idx===si?s2:x);d[ei]=e2;return {...prev,[weekIdx]:{...w,[dayIdx]:d}}});}} keyboardType="numeric" placeholder="RPE" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
+                  <TextInput value={String(s.weight??'')} onChangeText={(v)=>editSet(ei,si,'weight',v)} keyboardType="numeric" placeholder="lb/kg" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
+                  <TextInput value={String(s.reps??'')} onChangeText={(v)=>editSet(ei,si,'reps',v)} keyboardType="numeric" placeholder="reps" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
+                  <TextInput value={String(s.rpe??'')} onChangeText={(v)=>editSet(ei,si,'rpe',v)} keyboardType="numeric" placeholder="RPE" placeholderTextColor={theme.muted} style={{flex:1,backgroundColor:theme.surface,color:theme.text,padding:8,borderRadius:8,textAlign:'center'}}/>
                 </View>
               ))}
-              <Pressable onPress={()=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const d=[...(((prev[weekIdx]||{})[dayIdx])||[])];const e2={...d[ei]};e2.sets=[...e2.sets,{weight:e2.sets[e2.sets.length-1]?.weight||'',reps:e2.sets[e2.sets.length-1]?.reps||'',rpe:e2.sets[e2.sets.length-1]?.rpe||7}];d[ei]=e2;return {...prev,[weekIdx]:{...w,[dayIdx]:d}}});}} style={{padding:10,borderRadius:8,backgroundColor:theme.surface,alignItems:'center'}}>
+              <Pressable onPress={()=>addSet(ei)} style={{padding:10,borderRadius:8,backgroundColor:theme.surface,alignItems:'center'}}>
                 <Text style={{color:theme.text}}>Add Set</Text>
               </Pressable>
             </View>
           ))}
 
           <View style={{flexDirection:'row',gap:8,marginTop:12}}>
-            <Pressable onPress={()=>{setPlan(prev=>{const wsrc=prev[weekIdx]||{};const copy={};for(let d=1;d<=days;d++){copy[d]=JSON.parse(JSON.stringify(wsrc[d]||[]));}return {...prev,[weekIdx+1]:copy};});}} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
-              <Text style={{color:theme.text}}>Duplicate Week</Text>
+            <Pressable onPress={openDupDay} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
+              <Text style={{color:theme.text}}>Duplicate Day…</Text>
             </Pressable>
-            <Pressable onPress={()=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const src=w[dayIdx]||[];return {...prev,[weekIdx]:{...w,[dayIdx+1]:JSON.parse(JSON.stringify(src))}}});}} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
-              <Text style={{color:theme.text}}>Duplicate Day</Text>
-            </Pressable>
-            <Pressable onPress={()=>{setPlan(prev=>{const w={...(prev[weekIdx]||{})};const next={...w};delete next[dayIdx];return {...prev,[weekIdx]:next};});}} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
-              <Text style={{color:theme.text}}>Delete Day</Text>
+            <Pressable onPress={openDupWeek} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
+              <Text style={{color:theme.text}}>Duplicate Week…</Text>
             </Pressable>
           </View>
         </Section>
@@ -251,7 +309,66 @@ export default function ProgramsScreen(){
         </Pressable>
       </ScrollView>
 
-      <ExerciseSelectModal visible={pickerOpen} onClose={()=>setPickerOpen(false)} onDone={(names)=>{const items=names.map(n=>({name:n,sets:[{weight:'',reps:'',rpe:7}]));setPlan(prev=>{const w={...(prev[weekIdx]||{})};const d=[...(((prev[weekIdx]||{})[dayIdx])||[]),...items];return {...prev,[weekIdx]:{...w,[dayIdx]:d}}});}} />
+      <ExerciseSelectModal visible={pickerOpen} onClose={()=>setPickerOpen(false)} onDone={handlePickerDone} />
+
+      <Modal visible={!!dupMode} transparent animationType="fade" onRequestClose={()=>setDupMode(null)}>
+        <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'center',padding:16}}>
+          <View style={{backgroundColor:theme.card,borderRadius:12,padding:12}}>
+            <Text style={{color:theme.text,fontWeight:'700',marginBottom:8}}>{dupMode==='day'?'Duplicate Day':'Duplicate Week'}</Text>
+            {dupMode==='day'
+              ? (
+                <View>
+                  <Text style={{color:theme.muted,marginBottom:6}}>{`From Week ${weekIdx} Day ${dayIdx} to:`}</Text>
+                  <Text style={{color:theme.muted,marginBottom:6}}>Week</Text>
+                  <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:10}}>
+                    {Array.from({length:weeks},(_,i)=>i+1).map(w=>(
+                      <Pressable key={w} onPress={()=>setDupTargetWeek(w)} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:8,backgroundColor:dupTargetWeek===w?theme.accent:theme.surface}}>
+                        <Text style={{color:theme.text}}>{w}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={{color:theme.muted,marginBottom:6}}>Day</Text>
+                  <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:10}}>
+                    {Array.from({length:days},(_,i)=>i+1).map(d=>(
+                      <Pressable key={d} onPress={()=>setDupTargetDay(d)} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:8,backgroundColor:dupTargetDay===d?theme.accent:theme.surface}}>
+                        <Text style={{color:theme.text}}>{d}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )
+              : (
+                <View>
+                  <Text style={{color:theme.muted,marginBottom:6}}>{`From Week ${weekIdx} to:`}</Text>
+                  <View style={{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:10}}>
+                    {Array.from({length:weeks},(_,i)=>i+1).map(w=>(
+                      <Pressable key={w} onPress={()=>setDupTargetWeek(w)} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:8,backgroundColor:dupTargetWeek===w?theme.accent:theme.surface}}>
+                        <Text style={{color:theme.text}}>{w}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )
+            }
+            <View style={{flexDirection:'row',gap:10,marginTop:6}}>
+              <Pressable onPress={()=>setDupMode(null)} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.surface,alignItems:'center'}}>
+                <Text style={{color:theme.text}}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={performDuplicate} style={{flex:1,padding:12,borderRadius:10,backgroundColor:theme.accent,alignItems:'center'}}>
+                <Text style={{color:theme.text,fontWeight:'700'}}>Duplicate</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {incompleteSticky && missingCount>0 ? (
+        <View style={{position:'absolute',left:0,right:0,bottom:0,backgroundColor:'#0b2533',padding:12,borderTopWidth:1,borderColor:theme.border}}>
+          <Text style={{color:theme.text}}>
+            Add at least one exercise to every day of every week. Missing: {missingCount}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

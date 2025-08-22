@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react';
+import React,{useEffect,useMemo,useState} from 'react';
 import {Modal,View,Text,Pressable,TextInput,ScrollView} from 'react-native';
 import {theme} from '../constants/theme';
 import {useExerciseLibrary} from '../contexts/ExerciseLibrary';
@@ -11,6 +11,14 @@ export default function ExerciseSelectModal({visible,onClose,onDone}){
   const [selMuscles,setSelMuscles]=useState([]);
   const [selEquip,setSelEquip]=useState([]);
   const [chosen,setChosen]=useState(new Set());
+  useEffect(()=>{
+    if(visible){
+      setQ('');
+      setSelMuscles([]);
+      setSelEquip([]);
+      setChosen(new Set());
+    }
+  },[visible]);
   const filtered=useMemo(()=>{
     const s=q.trim().toLowerCase();
     return list.filter(e=>{
@@ -25,8 +33,20 @@ export default function ExerciseSelectModal({visible,onClose,onDone}){
     if(n.has(name)) n.delete(name); else n.add(name);
     setChosen(n);
   };
-  const done=()=>{onDone&&onDone(Array.from(chosen));onClose&&onClose();};
-  const chip=(label,active,onPress)=>(<Pressable key={label} onPress={onPress} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:14,backgroundColor:active?theme.accent:theme.surface,marginRight:8,marginBottom:8}}><Text style={{color:theme.text}}>{label}</Text></Pressable>);
+  const done=()=>{
+    const out=Array.from(chosen);
+    setChosen(new Set());
+    setQ('');
+    setSelMuscles([]);
+    setSelEquip([]);
+    onDone&&onDone(out);
+    onClose&&onClose();
+  };
+  const chip=(label,active,onPress)=>(
+    <Pressable key={label} onPress={onPress} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:14,backgroundColor:active?theme.accent:theme.surface,marginRight:8,marginBottom:8}}>
+      <Text style={{color:theme.text}}>{label}</Text>
+    </Pressable>
+  );
   return(
     <Modal visible={visible} onRequestClose={onClose} animationType="slide" presentationStyle="pageSheet">
       <View style={{flex:1,backgroundColor:theme.bg}}>
@@ -35,12 +55,12 @@ export default function ExerciseSelectModal({visible,onClose,onDone}){
           <TextInput placeholder="Search" placeholderTextColor={theme.muted} value={q} onChangeText={setQ} style={{marginTop:10,backgroundColor:theme.card,color:theme.text,padding:10,borderRadius:8}}/>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:10}}>
             <View style={{flexDirection:'row',flexWrap:'nowrap'}}>
-              {muscles.map(m=>(<Pressable key={m} onPress={()=>setSelMuscles(x=>x.includes(m)?x.filter(y=>y!==m):[...x,m])} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:14,backgroundColor:selMuscles.includes(m)?theme.accent:theme.surface,marginRight:8,marginBottom:8}}><Text style={{color:theme.text}}>{m}</Text></Pressable>))}
+              {muscles.map(m=>chip(m,selMuscles.includes(m),()=>setSelMuscles(x=>x.includes(m)?x.filter(y=>y!==m):[...x,m])))}
             </View>
           </ScrollView>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:8}}>
             <View style={{flexDirection:'row',flexWrap:'nowrap'}}>
-              {equipment.map(eq=>(<Pressable key={eq} onPress={()=>setSelEquip(x=>x.includes(eq)?x.filter(y=>y!==eq):[...x,eq])} style={{paddingVertical:6,paddingHorizontal:10,borderRadius:14,backgroundColor:selEquip.includes(eq)?theme.accent:theme.surface,marginRight:8,marginBottom:8}}><Text style={{color:theme.text}}>{eq}</Text></Pressable>))}
+              {equipment.map(eq=>chip(eq,selEquip.includes(eq),()=>setSelEquip(x=>x.includes(eq)?x.filter(y=>y!==eq):[...x,eq])))}
             </View>
           </ScrollView>
         </View>
@@ -48,7 +68,7 @@ export default function ExerciseSelectModal({visible,onClose,onDone}){
           {filtered.map(e=>(
             <Pressable key={e.name} onPress={()=>toggle(e.name)} style={{paddingVertical:10,borderBottomWidth:1,borderColor:theme.border,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
               <Text style={{color:theme.text}}>{e.name}</Text>
-              <Text style={{color:new Set(chosen).has(e.name)?theme.accent:theme.muted}}>{new Set(chosen).has(e.name)?'✓':''}</Text>
+              <Text style={{color:chosen.has(e.name)?theme.accent:theme.muted}}>{chosen.has(e.name)?'✓':''}</Text>
             </Pressable>
           ))}
           {filtered.length===0?<Text style={{color:theme.muted,marginTop:10}}>No matches.</Text>:null}
