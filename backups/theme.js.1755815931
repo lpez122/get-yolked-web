@@ -1,2 +1,0 @@
-export const theme={accent:"#003D79",bg:"#0E0E10",card:"#121A24",surface:"#0E1822",text:"#E6F2FF",textDim:"#8FA3B8",border:"#1B2733"};
-export const navTheme={dark:true,colors:{primary:theme.accent,background:theme.bg,card:theme.card,text:"#ffffff",border:theme.border,notification:theme.accent}};

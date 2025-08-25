@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 // Data model definitions
@@ -220,5 +220,9 @@ export function DataProvider({ children }) {
     computeGlobalPrs: () => computeGlobalPrs(state.workouts)
   };
 
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+  return (
+    <DataContext.Provider value={value}>
+      {children}
+    </DataContext.Provider>
+  );
 }

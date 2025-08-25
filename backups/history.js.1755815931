@@ -1,5 +1,0 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-const KEY='workout_history_v1';
-export async function getHistory(){try{const raw=await AsyncStorage.getItem(KEY);return JSON.parse(raw||'[]');}catch(e){return[]}}
-export async function addHistoryEntry(e){try{const a=await getHistory();a.push(e);await AsyncStorage.setItem(KEY,JSON.stringify(a));}catch(e){}}
-export async function clearHistory(){try{await AsyncStorage.setItem(KEY,'[]');}catch(e){}}

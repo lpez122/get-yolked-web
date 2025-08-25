@@ -1,7 +1,7 @@
-import React,{useEffect,useMemo,useState} from 'react';
-import {View,Text,Pressable,ScrollView,Modal,FlatList} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {theme} from '../constants/theme';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { theme } from '../constants/theme';
 
 function fmt(sec){const s=Math.max(0,Math.floor(Number(sec||0)));const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);const r=s%60;return (h?`${h}:`:'')+String(m).padStart(2,'0')+':'+String(r).padStart(2,'0')}
 function keyOf(ms){const d=new Date(ms||Date.now());const y=d.getFullYear();const m=d.getMonth()+1;const day=d.getDate();return `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`}
@@ -112,19 +112,28 @@ export default function History(){
                 {exs.map((ex,ei)=>(
                   <View key={ei} style={{backgroundColor:theme.surface,borderRadius:10,padding:10,marginBottom:8}}>
                     <Text style={{color:theme.text,fontWeight:'700'}}>{ex.name||'Exercise'}</Text>
-                    {(ex.sets||[]).map((s,si)=>{
-                      const lbs=s.lbs??s.weight??0;
-                      const reps=s.reps??0;
-                      const rpe=s.rpe??null;
-                      const mark=s.done?'✓':'○';
-                      return(
-                        <View key={si} style={{flexDirection:'row',justifyContent:'space-between',paddingVertical:4,borderBottomWidth:si<(ex.sets.length-1)?1:0,borderBottomColor:theme.border}}>
-                          <Text style={{color:theme.textDim}}>Set {si+1}</Text>
-                          <Text style={{color:theme.text}}>{String(lbs)} lb × {String(reps)}{rpe!==null?` @ RPE ${String(rpe)}`:''}</Text>
-                          <Text style={{color:s.done?theme.accent:'#334B63',fontWeight:'800'}}>{mark}</Text>
-                        </View>
-                      )
-                    })}
+                    {(() => {
+                      // normalize sets to an array. ex.sets may be:
+                      // - an array of set objects
+                      // - a numeric count (legacy)
+                      // - undefined
+                      const normalizedSets = Array.isArray(ex.sets)
+                        ? ex.sets
+                        : (typeof ex.sets === 'number' ? Array.from({length: ex.sets}).map(()=>({})) : []);
+                      return normalizedSets.map((s,si)=>{
+                        const lbs=s.lbs??s.weight??0;
+                        const reps=s.reps??0;
+                        const rpe=s.rpe??null;
+                        const mark=s.done?'✓':'○';
+                        return(
+                          <View key={si} style={{flexDirection:'row',justifyContent:'space-between',paddingVertical:4,borderBottomWidth:si<(normalizedSets.length-1)?1:0,borderBottomColor:theme.border}}>
+                            <Text style={{color:theme.textDim}}>Set {si+1}</Text>
+                            <Text style={{color:theme.text}}>{String(lbs)} lb × {String(reps)}{rpe!==null?` @ RPE ${String(rpe)}`:''}</Text>
+                            <Text style={{color:s.done?theme.accent:'#334B63',fontWeight:'800'}}>{mark}</Text>
+                          </View>
+                        )
+                      });
+                    })()}
                   </View>
                 ))}
               </View>

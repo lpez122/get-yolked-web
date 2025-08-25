@@ -1,7 +1,7 @@
-import React,{useEffect,useMemo,useState} from 'react';
-import {View,Text,Pressable,FlatList} from 'react-native';
-import {theme} from '../constants/theme';
-import {getHistory,clearHistory} from '../utils/history';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Pressable, Text, View } from 'react-native';
+import { theme } from '../constants/theme';
+import { clearHistory, getHistory } from '../contexts/HistoryStore';
 
 function startOfMonth(d){return new Date(d.getFullYear(),d.getMonth(),1)}
 function endOfMonth(d){return new Date(d.getFullYear(),d.getMonth()+1,0)}

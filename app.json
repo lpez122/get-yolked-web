@@ -3,6 +3,13 @@
     "name": "get-yolked-web",
     "slug": "get-yolked-web",
     "version": "1.0.0",
-    "platforms": ["ios", "android", "web"]
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-audio"
+    ]
   }
 }

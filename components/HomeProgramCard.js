@@ -1,9 +1,9 @@
-import React,{useEffect,useState,useCallback} from 'react';
-import {View,Text,Pressable} from 'react-native';
-import {useNavigation,useIsFocused} from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {theme} from '../constants/theme';
-import {getActive,stopActive,getSavedPrograms} from '../utils/programState';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { theme } from '../constants/theme';
+import { getActive, getSavedPrograms, stopActive } from '../utils/programState';
 
 async function setPointer(next){
   const key='active_program_v1';
@@ -15,7 +15,7 @@ async function setPointer(next){
   return upd;
 }
 
-export default function HomeProgramCard(){
+export default function HomeProgramCard({ rightElement, ...props }){
   const nav=useNavigation();
   const focused=useIsFocused();
   const [active,setActive]=useState(null);
@@ -34,26 +34,48 @@ export default function HomeProgramCard(){
 
   if(!active) return null;
 
-  function start(){nav.navigate('Workout',{mode:'program'})}
-  async function stop(){await stopActive(); setActive(null); setPreview([])}
+  function start(){
+    const a=active||{};
+    const w=Number(a.currentWeek||1);
+    const d=Number(a.currentDay||1);
+    nav.navigate('Workout',{
+      mode:'program',
+      programId:a.id,
+      programName:a.name,
+      week:w,
+      day:d
+    });
+  }
+
+  async function stop(){
+    await stopActive();
+    setActive(null);
+    setPreview([]);
+  }
 
   async function step(dir){
-    const weeks=Number(active.weeks||1);
-    const days=Number(active.days||1);
-    let w=Number(active.currentWeek||1);
-    let d=Number(active.currentDay||1);
+    const weeks=Number(active?.weeks||1);
+    const days=Number(active?.days||1);
+    let w=Number(active?.currentWeek||1);
+    let d=Number(active?.currentDay||1);
     d+=dir;
     if(d<1){ if(w>1){w--; d=days;} else d=1; }
     if(d>days){ if(w<weeks){w++; d=1;} else d=days; }
     const upd=await setPointer({week:w,day:d});
-    setActive(upd); load();
+    setActive(upd);
+    await load();
   }
 
   return(
     <View style={{backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:16}}>
-      <Text style={{color:theme.text,fontSize:18,fontWeight:'800'}} numberOfLines={1}>
-        {active.name||'Program'} • Week {active.currentWeek||1} Day {active.currentDay||1}
-      </Text>
+      <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}}>
+        <Text style={{color:theme.text,fontSize:18,fontWeight:'800'}} numberOfLines={1}>
+          {active.name||'Program'} • Week {active.currentWeek||1} Day {active.currentDay||1}
+        </Text>
+        <View style={{flexDirection:'row',alignItems:'center'}}>
+          {rightElement ? rightElement : null}
+        </View>
+      </View>
 
       <View style={{marginTop:10}}>
         {preview.map((item,i)=>(
@@ -81,5 +103,5 @@ export default function HomeProgramCard(){
         </Pressable>
       </View>
     </View>
-  )
+  );
 }

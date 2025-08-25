@@ -1,0 +1,140 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ExercisePicker from '../components/ExercisePicker';
+import RestSquareTimer from '../components/RestSquareTimer';
+import { theme } from '../constants/theme';
+
+const ACTIVE_KEY='active_program_v1';
+const SAVED_KEY='saved_programs_v1';
+const HISTORY_KEY='workout_history_v1';
+
+function fmt(sec){const s=Math.max(0,Math.floor(sec));const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);const r=s%60;return (h?`${h}:`:'')+String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');}
+
+async function getActive(){const raw=await AsyncStorage.getItem(ACTIVE_KEY);return raw?JSON.parse(raw):null}
+async function setActive(a){if(a) await AsyncStorage.setItem(ACTIVE_KEY,JSON.stringify(a)); else await AsyncStorage.removeItem(ACTIVE_KEY)}
+async function getSaved(){const raw=await AsyncStorage.getItem(SAVED_KEY);return raw?JSON.parse(raw):[]}
+
+async function loadProgramDay({programId,week,day}){
+  const list=await getSaved();
+  const prog=list.find(p=>String(p.id)===String(programId));
+  if(!prog) return {name:'',items:[]};
+  const w=String(week||1), d=String(day||1);
+  const dayArr=(((prog.plan||{})[w]||{})[d])||[];
+  const items=(dayArr||[]).map(ex=>{
+    const sets=Array.isArray(ex.sets)&&ex.sets.length?ex.sets:[{weight:'',reps:'',rpe:7}];
+    return {name:ex.name||'Exercise',sets:sets.map(s=>({weight:String(s.weight??''),reps:String(s.reps??''),rpe:Number(s.rpe||7),done:false}))}
+  });
+  return {name:prog.name||'',items};
+}
+
+function StableWorkoutInner(){
+  const nav=useNavigation();
+  const route=useRoute();
+  const {top,bottom}=useSafeAreaInsets();
+  const [programMeta,setProgramMeta]=useState({programId:null,programName:'',week:1,day:1});
+  const [exercises,setExercises]=useState([]);
+  const [elapsed,setElapsed]=useState(0);
+  const restRef = useRef(null);
+  const [restSec, setRestSec] = useState('90');
+  const [restRemain, setRestRemain] = useState(90);
+  const rfmt = (s)=>`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  const [startedAt,setStartedAt]=useState(Date.now());
+  const [pickerOpen,setPickerOpen]=useState(false);
+  const [pickerMode,setPickerMode]=useState('add');
+  const [pickerTarget,setPickerTarget]=useState(-1);
+
+  const timerRef=useRef(null);
+  const lastTickRef=useRef(Date.now());
+
+  useEffect(()=>{
+    let mounted=true;
+    (async()=>{
+      const p=route?.params||{};
+      let a=await getActive();
+      let programId=p.programId||a?.id||null;
+      let programName=p.programName||a?.name||'';
+      let week=Number(p.week||a?.currentWeek||1);
+      let day=Number(p.day||a?.currentDay||1);
+      setProgramMeta({programId,programName,week,day});
+      if(programId){
+        const data=await loadProgramDay({programId,week,day});
+        if(mounted){setExercises(data.items)}
+      } else {
+        if(mounted){setExercises([])}
+      }
+      setElapsed(0);
+      setStartedAt(Date.now());
+      lastTickRef.current=Date.now();
+    })();
+    return ()=>{mounted=false}
+  },[route?.params?.programId,route?.params?.week,route?.params?.day]);
+
+  useEffect(()=>{
+    if(timerRef.current){clearInterval(timerRef.current);timerRef.current=null}
+    const tick = () => {
+      const now = Date.now();
+      const dt = (now - (lastTickRef.current || now)) / 1000;
+      lastTickRef.current = now;
+      setElapsed(prev => Math.max(0, prev + dt));
+    };
+    tick();
+    timerRef.current = setInterval(tick, 500);
+    return ()=>{ if(timerRef.current) clearInterval(timerRef.current); timerRef.current=null };
+  },[startedAt]);
+
+  function toggleSetDone(i, j) {
+  const wasDone = !!exercises[i]?.sets?.[j]?.done;
+  setExercises(prev => {
+    const next = prev.map((ex, idx) => (idx === i ? { ...ex } : { ...ex }));
+    const ex = next[i];
+    ex.sets = ex.sets.map((s, k) => (k === j ? { ...s, done: !s.done } : s));
+    return next;
+  });
+  if (!wasDone) {
+    const headerSeconds = Number(restSec || 0);
+    const duration = headerSeconds > 0 ? headerSeconds : 90;
+    restRef.current?.start(duration);
+  }
+}
+
+const styles=StyleSheet.create({
+  colsRow:{flex: 0, alignItems:'center',gap:5,paddingHorizontal:10},
+  headerLabel:{width:'100%',textAlign:'right',fontSize:12,opacity:0.7,color:'#8C8C96'},
+  colLbs:{flex:0,width:90,marginHorizontal:10},
+  colReps:{flex:0,width:60,marginHorizontal:10},
+wrap:{flex:1,backgroundColor:theme.bg},
+  header:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingHorizontal:16,paddingBottom:8,backgroundColor:theme.bg},
+  clock:{color:'#fff',fontSize:28,fontWeight:'700'},
+  hBtn:{paddingHorizontal:14,paddingVertical:10,borderRadius:12,backgroundColor:'#1F1F28'},
+  hBtnText:{color:'#EDEDED',fontWeight:'700'},
+  card:{backgroundColor:theme.card,marginHorizontal:12,marginTop:12,borderRadius:14,padding:12},
+  exHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:6},
+  exTitle:{color:'#CFCFF5',fontSize:16,fontWeight:'700'},
+  menuDot:{width:32,height:32,alignItems:'center',justifyContent:'center',borderRadius:8,backgroundColor:'#23232B'},
+  tableHeader:{flexDirection:'row',paddingVertical:6,borderBottomWidth:1,borderBottomColor:theme.border},
+  th:{flex:1,textAlign: 'right', color:'#8C8C96',fontSize:12,textTransform:'uppercase',letterSpacing:0.5},
+  row:{flexDirection:'row',alignItems:'right',paddingVertical:6,borderBottomWidth:1,borderBottomColor:theme.border},
+  cell:{flex:1,color:'#EDEDED'},
+  input:{color:'#fff',borderWidth:1,borderColor:'#2C2C36',borderRadius:10,paddingVertical:6,paddingHorizontal:4,marginHorizontal:4,textAlign:'center',fontSize:14},
+  inputFill:{width:'100%'},
+  inputFill:{width:'100%'},
+  weightInput:{width:60},
+  repsInput:{width:60},
+  doneInput:{borderColor:theme.accent,backgroundColor:'#101a33'},
+  check:{height:30,width:40,borderRadius:8,borderWidth:2,borderColor:'#3A3A45',alignItems:'center',justifyContent:'center'},
+  checkOn:{borderColor:theme.accent,backgroundColor:'#101a33'},
+  checkMark:{color:'#3A3A45',fontWeight:'900'},
+  checkMarkOn:{color:theme.accent},
+  addSet:{marginTop:8,alignSelf:'flex-start',paddingVertical:6,paddingHorizontal:12,borderRadius:10,backgroundColor:'#20202A'},
+  addSetText:{color:'#B8B8C7',fontWeight:'600'},
+  addExercise:{marginTop:16,alignSelf:'center',backgroundColor:theme.accent,paddingHorizontal:18,paddingVertical:12,borderRadius:12,marginBottom:12},
+  addExerciseText:{color:'#fff',fontWeight:'800'}
+});
+
+export default function StableWorkout(props){
+  return(<GestureHandlerRootView style={{flex:1}}><StableWorkoutInner {...props}/></GestureHandlerRootView>);
+}
